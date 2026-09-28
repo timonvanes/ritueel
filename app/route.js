@@ -3,7 +3,7 @@ const HTML = `<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Huid & Haar Ritueel</title>
+<title>Ritueel</title>
 <link rel="icon" type="image/svg+xml" href="/icon.svg">
 <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png">
@@ -221,7 +221,7 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
           <path d="M50 21 C50 21 29 47 29 61.5 C29 73.4 38.4 82 50 82 C61.6 82 71 73.4 71 61.5 C71 47 50 21 50 21 Z" fill="#FFFFFF"/>
           <path d="M40.5 61 L47 67.5 L60.5 51.5" fill="none" stroke="#0E7A57" stroke-width="6.2" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
-        <h1>Huid &amp; Haar Ritueel</h1>
+        <h1>Ritueel</h1>
       </div>
       <div class="date"><span id="todayLabel">—</span> · <a href="/api/logout">uitloggen</a></div>
     </div>

@@ -1,4 +1,4 @@
-# Huid & Haar Ritueel
+# Ritueel
 
 Persoonlijke huid- en haarroutine tracker. Next.js app, data in Vercel KV (Upstash Redis).
 

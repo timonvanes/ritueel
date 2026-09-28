@@ -4,7 +4,7 @@ function page(error) {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Inloggen — Huid & Haar Ritueel</title>
+<title>Inloggen — Ritueel</title>
 <link rel="icon" type="image/svg+xml" href="/icon.svg">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;700;800&family=Work+Sans:wght@400;500;600;700&display=swap">
 <style>
@@ -72,7 +72,7 @@ button:active{transform:scale(.98);}
       <path d="M40.5 61 L47 67.5 L60.5 51.5" fill="none" stroke="#0E7A57" stroke-width="6.2" stroke-linecap="round" stroke-linejoin="round"/>
     </svg>
     <div>
-      <h1>Huid &amp; Haar Ritueel</h1>
+      <h1>Ritueel</h1>
     </div>
     ${error ? '<div class="error">Onjuiste gebruikersnaam of wachtwoord.</div>' : ""}
     <form method="POST" action="/api/login">
