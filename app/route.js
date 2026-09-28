@@ -54,7 +54,8 @@ body{
   background:var(--bg); color:var(--ink);
   font-family:"Work Sans",system-ui,sans-serif;
   font-size:15.5px;
-  padding:0 16px; padding-block:20px 56px;
+  padding:0 16px;
+  padding-block:calc(20px + env(safe-area-inset-top)) calc(56px + env(safe-area-inset-bottom));
 }
 .wrap{max-width:760px;margin:0 auto;display:flex;flex-direction:column;gap:22px;}
 

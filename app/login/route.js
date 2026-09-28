@@ -39,7 +39,8 @@ function page(error) {
 html,body{margin:0;padding:0;height:100%;}
 body{
   background:var(--bg); color:var(--ink); font-family:"Work Sans",system-ui,sans-serif;
-  display:flex; align-items:center; justify-content:center; padding:24px;
+  display:flex; align-items:center; justify-content:center;
+  padding:calc(24px + env(safe-area-inset-top)) 24px calc(24px + env(safe-area-inset-bottom));
 }
 .card{
   width:100%; max-width:360px; background:var(--surface); border:1px solid var(--border);
