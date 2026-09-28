@@ -18,7 +18,7 @@ export async function POST(request) {
     status: 303,
     headers: {
       Location: new URL("/", request.url).toString(),
-      "Set-Cookie": `${AUTH_COOKIE}=${token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${60 * 60 * 24 * 180}`
+      "Set-Cookie": `${AUTH_COOKIE}=${token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${60 * 60 * 24 * 400}`
     }
   });
 }
