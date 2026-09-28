@@ -1,0 +1,13 @@
+name: Push reminders
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call reminder tick endpoint
+        run: curl -fsS https://ritueel.vercel.app/api/push/tick

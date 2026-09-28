@@ -129,8 +129,6 @@ nav.tabs button:focus-visible{outline:2px solid var(--accent);outline-offset:2px
 .row-name{font-size:15px;font-weight:500;}
 .row-main.done .row-name{color:var(--muted);text-decoration:line-through;text-decoration-color:var(--border);font-weight:400;}
 .dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;}
-.dot.huid{background:var(--skin);}
-.dot.haar{background:var(--hair);}
 .row-notes{font-size:12.5px;color:var(--muted);}
 .suggest-tag{
   font-family:"Work Sans",sans-serif;font-size:10px;letter-spacing:.04em;text-transform:uppercase;
@@ -191,6 +189,7 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
   border-radius:22px;padding:9px 16px;cursor:pointer;min-height:40px;
 }
 .seg button.on{background:var(--ink);color:var(--surface);border-color:var(--ink);}
+.seg button.add-cat{color:var(--accent);border-color:var(--accent);border-style:dashed;background:none;}
 .seg.days button{padding:9px 13px;min-width:44px;}
 .seg-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
 .seg-row .allday{font-size:12px;padding:7px 12px;min-height:34px;color:var(--accent);border-color:var(--accent);background:none;}
@@ -242,6 +241,7 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
   <nav class="tabs">
     <button class="active" data-tab="vandaag">Vandaag</button>
     <button data-tab="producten">Producten</button>
+    <button data-tab="instellingen">Instellingen</button>
   </nav>
 
   <section id="tab-vandaag">
@@ -281,10 +281,7 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
       </div>
       <div class="frow">
         <label>Categorie</label>
-        <div class="seg" id="seg-cat">
-          <button type="button" data-val="huid">Huid</button>
-          <button type="button" data-val="haar">Haar</button>
-        </div>
+        <div class="seg" id="seg-cat"></div>
       </div>
       <div class="frow">
         <label>Moment</label>
@@ -320,8 +317,18 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
 
     <div class="plist" id="productList" style="margin-top:16px;"></div>
   </section>
+
+  <section id="tab-instellingen" hidden>
+    <div class="card">
+      <div class="card-head"><h2>Meldingen</h2></div>
+      <div class="row-notes">Elke dag om 7:00 en 22:00 een melding: "Vergeet het niet".</div>
+      <button class="btn primary" id="btnNotifToggle" style="margin-top:6px;">Meldingen aanzetten</button>
+      <div class="row-notes" id="notifStatus"></div>
+    </div>
+  </section>
 </div>
 
+<script>window.__VAPID_PUBLIC_KEY__ = ${JSON.stringify(process.env.VAPID_PUBLIC_KEY || "")};</script>
 <script>
 (function(){
   var DAYS = ["zo","ma","di","wo","do","vr","za"];
@@ -343,9 +350,17 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
   var state = {
     readOnly: true,
     steps: [],
+    categories: [],
     todayLog: { date: todayId, done: {}, skipped: {}, total: 0 },
     logsByDate: {}
   };
+
+  var CATEGORY_COLORS = ["#0E7A57","#64748B","#B45309","#6D28D9","#0369A1","#BE185D"];
+  function categoryColor(catId){
+    var idx = state.categories.findIndex(function(c){ return c.id===catId; });
+    if(idx<0) idx = 0;
+    return CATEGORY_COLORS[idx % CATEGORY_COLORS.length];
+  }
 
   function stepsForDay(weekday){
     return state.steps.filter(function(s){ return (s.days||[]).indexOf(weekday)!==-1; });
@@ -446,7 +461,10 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
     }
   }
 
-  function catLabel(c){ return c==="huid" ? "Huid" : "Haar"; }
+  function catLabel(c){
+    var found = state.categories.find(function(x){ return x.id===c; });
+    return found ? found.name : c;
+  }
   function daysLabel(days){
     if(!days || days.length===0) return "Nooit";
     if(days.length===7) return "Elke dag";
@@ -460,7 +478,8 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
     var nameLine = document.createElement("div");
     nameLine.className = "row-name-line";
     var dot = document.createElement("span");
-    dot.className = "dot "+step.category;
+    dot.className = "dot";
+    dot.style.background = categoryColor(step.category);
     var name = document.createElement("span");
     name.className = "row-name";
     name.textContent = step.name;
@@ -566,14 +585,15 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
   function renderProducts(){
     var mount = document.getElementById("productList");
     mount.innerHTML = "";
-    var cats = ["huid","haar"];
+    var cats = state.categories.map(function(c){ return c.id; });
     cats.forEach(function(cat){
       var items = state.steps.filter(function(s){ return s.category===cat; });
       if(items.length===0) return;
       var glabel = document.createElement("div");
       glabel.className = "group-label";
       var gdot = document.createElement("span");
-      gdot.className = "dot "+cat;
+      gdot.className = "dot";
+      gdot.style.background = categoryColor(cat);
       var gtext = document.createElement("span");
       gtext.className = "label-caps";
       gtext.textContent = catLabel(cat);
@@ -652,12 +672,14 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
     highlightActiveTime();
   }
 
+  var TAB_IDS = ["vandaag","producten","instellingen"];
   document.querySelectorAll("nav.tabs button").forEach(function(btn){
     btn.addEventListener("click", function(){
       document.querySelectorAll("nav.tabs button").forEach(function(b){ b.classList.remove("active"); });
       btn.classList.add("active");
-      document.getElementById("tab-vandaag").hidden = btn.dataset.tab!=="vandaag";
-      document.getElementById("tab-producten").hidden = btn.dataset.tab!=="producten";
+      TAB_IDS.forEach(function(id){
+        document.getElementById("tab-"+id).hidden = btn.dataset.tab!==id;
+      });
     });
   });
 
@@ -673,9 +695,37 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
       b.classList.toggle("on", formDays.indexOf(parseInt(b.dataset.val,10))!==-1);
     });
   }
-  document.getElementById("seg-cat").querySelectorAll("button").forEach(function(b){
-    b.addEventListener("click", function(){ formCat=b.dataset.val; setSeg(document.getElementById("seg-cat"),formCat); });
-  });
+  function renderCategorySeg(){
+    var container = document.getElementById("seg-cat");
+    container.innerHTML = "";
+    state.categories.forEach(function(c){
+      var b = document.createElement("button");
+      b.type = "button";
+      b.dataset.val = c.id;
+      b.textContent = c.name;
+      b.className = formCat===c.id ? "on" : "";
+      b.addEventListener("click", function(){ formCat=c.id; renderCategorySeg(); });
+      container.appendChild(b);
+    });
+    var addBtn = document.createElement("button");
+    addBtn.type = "button";
+    addBtn.className = "add-cat";
+    addBtn.textContent = "+ Nieuw";
+    addBtn.addEventListener("click", function(){
+      var name = window.prompt("Naam van de nieuwe categorie:");
+      if(name && name.trim()){ createCategoryApi(name.trim()); }
+    });
+    container.appendChild(addBtn);
+  }
+  function createCategoryApi(name){
+    api("/api/categories", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({name:name}) })
+      .then(function(cat){
+        if(!state.categories.some(function(c){ return c.id===cat.id; })) state.categories.push(cat);
+        formCat = cat.id;
+        renderCategorySeg();
+      })
+      .catch(function(){ alert("Kon categorie niet toevoegen."); });
+  }
   document.getElementById("seg-time").querySelectorAll("button").forEach(function(b){
     b.addEventListener("click", function(){ formTime=b.dataset.val; setSeg(document.getElementById("seg-time"),formTime); });
   });
@@ -696,10 +746,10 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
     editingId = step ? step.id : null;
     document.getElementById("f-name").value = step ? step.name : "";
     document.getElementById("f-notes").value = step ? (step.notes||"") : "";
-    formCat = step ? step.category : "huid";
+    formCat = step ? step.category : (state.categories[0] ? state.categories[0].id : "huid");
     formTime = step ? step.moment : "ochtend";
     formDays = step ? (step.days||[]).slice() : [1,2,3,4,5,6,0];
-    setSeg(document.getElementById("seg-cat"), formCat);
+    renderCategorySeg();
     setSeg(document.getElementById("seg-time"), formTime);
     setDaySeg();
     document.getElementById("btnSaveForm").textContent = step ? "Wijzigingen opslaan" : "Opslaan";
@@ -787,10 +837,12 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
     var dates = last21Dates();
     Promise.all([
       api("/api/steps"),
-      api("/api/logs?dates="+dates.join(","))
+      api("/api/logs?dates="+dates.join(",")),
+      api("/api/categories")
     ]).then(function(results){
       state.steps = results[0];
       var logsMap = results[1];
+      state.categories = results[2];
       state.logsByDate = {};
       dates.forEach(function(d){
         state.logsByDate[d] = logsMap[d]
@@ -809,6 +861,80 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
   }
 
   window.addEventListener("focus", loadAll);
+
+  function urlBase64ToUint8Array(base64String){
+    var padding = "=".repeat((4 - base64String.length % 4) % 4);
+    var base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+    var raw = window.atob(base64);
+    var out = new Uint8Array(raw.length);
+    for(var i=0;i<raw.length;i++) out[i] = raw.charCodeAt(i);
+    return out;
+  }
+  function pushSupported(){ return "serviceWorker" in navigator && "PushManager" in window; }
+  function getExistingSubscription(){
+    if(!pushSupported()) return Promise.resolve(null);
+    return navigator.serviceWorker.getRegistration().then(function(reg){
+      return reg ? reg.pushManager.getSubscription() : null;
+    });
+  }
+  function refreshNotifUI(){
+    var btn = document.getElementById("btnNotifToggle");
+    var status = document.getElementById("notifStatus");
+    if(!pushSupported()){
+      btn.disabled = true;
+      btn.textContent = "Niet ondersteund op dit toestel";
+      status.textContent = "Voeg de app eerst toe aan je beginscherm (iOS) of gebruik een moderne browser.";
+      return;
+    }
+    getExistingSubscription().then(function(sub){
+      if(sub){
+        btn.textContent = "Meldingen uitzetten";
+        btn.classList.remove("primary");
+        status.textContent = "Meldingen staan aan op dit toestel.";
+      } else {
+        btn.textContent = "Meldingen aanzetten";
+        btn.classList.add("primary");
+        status.textContent = "";
+      }
+    });
+  }
+  function enableNotifications(){
+    navigator.serviceWorker.register("/sw.js").then(function(reg){
+      return Notification.requestPermission().then(function(perm){
+        if(perm!=="granted"){ alert("Zonder toestemming kan ik geen meldingen sturen."); return; }
+        var key = window.__VAPID_PUBLIC_KEY__;
+        if(!key){ alert("Meldingen zijn nog niet ingesteld (VAPID-sleutels ontbreken)."); return; }
+        return reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(key)
+        }).then(function(sub){
+          return api("/api/push/subscribe", {
+            method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(sub)
+          });
+        });
+      });
+    }).then(refreshNotifUI).catch(function(err){
+      alert("Kon meldingen niet aanzetten: "+err.message);
+      refreshNotifUI();
+    });
+  }
+  function disableNotifications(){
+    getExistingSubscription().then(function(sub){
+      if(!sub) return;
+      var endpoint = sub.endpoint;
+      return sub.unsubscribe().then(function(){
+        return api("/api/push/unsubscribe", {
+          method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({endpoint:endpoint})
+        }).catch(function(){});
+      });
+    }).then(refreshNotifUI);
+  }
+  document.getElementById("btnNotifToggle").addEventListener("click", function(){
+    getExistingSubscription().then(function(sub){
+      if(sub) disableNotifications(); else enableNotifications();
+    });
+  });
+  refreshNotifUI();
 
   renderAll();
   loadAll();

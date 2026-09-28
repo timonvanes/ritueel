@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { AUTH_COOKIE, authConfigured, verifySessionCookie } from "./lib/auth";
 
-const PUBLIC_PATHS = ["/login", "/api/login", "/api/logout"];
+const PUBLIC_PATHS = ["/login", "/api/login", "/api/logout", "/api/push/tick"];
 
 export async function middleware(request) {
   if (!authConfigured()) return NextResponse.next();
