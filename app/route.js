@@ -246,6 +246,14 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
   </nav>
 
   <section id="tab-vandaag">
+    <div class="card" id="card-flex" style="margin-bottom:16px;">
+      <div class="card-head">
+        <h2>Wanneer het uitkomt</h2>
+        <span class="count" id="count-flex">0/0</span>
+      </div>
+      <div class="rows" id="rows-flex"></div>
+    </div>
+
     <div class="grid-2">
       <div class="card" id="card-ochtend">
         <div class="card-head">
@@ -289,6 +297,7 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
         <div class="seg" id="seg-time">
           <button type="button" data-val="ochtend">Ochtend</button>
           <button type="button" data-val="avond">Avond</button>
+          <button type="button" data-val="flex">Wanneer het uitkomt</button>
         </div>
       </div>
       <div class="frow">
@@ -325,6 +334,8 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
       <div class="row-notes">Elke dag om 7:00 en 22:00 een melding: "Vergeet het niet".</div>
       <button class="btn primary" id="btnNotifToggle" style="margin-top:6px;">Meldingen aanzetten</button>
       <div class="row-notes" id="notifStatus"></div>
+      <button class="btn" id="btnNotifTest" style="margin-top:10px;">Stuur testmelding</button>
+      <div class="row-notes" id="notifTestStatus"></div>
     </div>
   </section>
 </div>
@@ -614,7 +625,7 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
         tags.className = "ptags";
         var t1 = document.createElement("span");
         t1.className = "tag";
-        t1.textContent = s.moment==="ochtend"?"Ochtend":"Avond";
+        t1.textContent = s.moment==="ochtend"?"Ochtend":s.moment==="avond"?"Avond":"Wanneer het uitkomt";
         var t2 = document.createElement("span");
         t2.className = "tag";
         t2.textContent = daysLabel(s.days);
@@ -665,6 +676,7 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
   }
 
   function renderAll(){
+    renderRoutine("flex","rows-flex","count-flex");
     renderRoutine("ochtend","rows-ochtend","count-ochtend");
     renderRoutine("avond","rows-avond","count-avond");
     renderHistory();
@@ -934,6 +946,17 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
     getExistingSubscription().then(function(sub){
       if(sub) disableNotifications(); else enableNotifications();
     });
+  });
+  document.getElementById("btnNotifTest").addEventListener("click", function(){
+    var status = document.getElementById("notifTestStatus");
+    status.textContent = "Versturen...";
+    api("/api/push/test", { method:"POST" })
+      .then(function(res){
+        status.textContent = res.total>0
+          ? "Verstuurd naar "+res.sent+" van "+res.total+" aangemelde toestel(len)."
+          : "Nog geen toestel aangemeld — zet meldingen eerst aan.";
+      })
+      .catch(function(){ status.textContent = "Versturen mislukt."; });
   });
   refreshNotifUI();
 
