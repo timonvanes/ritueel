@@ -4,6 +4,12 @@ const HTML = `<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Huid & Haar Ritueel</title>
+<link rel="icon" type="image/svg+xml" href="/icon.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#0E7A57">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;700;800&family=Work+Sans:wght@400;500;600;700&display=swap">
 <style>
 :root{
@@ -52,8 +58,12 @@ h1,h2,h3{font-family:"Manrope",system-ui,sans-serif;font-weight:800;margin:0;tex
 .label-caps{font-family:"Work Sans",sans-serif;font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);}
 
 header.top{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding-block:4px;}
+header.top .title-line{display:flex;align-items:center;gap:10px;}
+header.top .logo-mark{width:30px;height:30px;border-radius:9px;flex-shrink:0;}
 header.top .title-block h1{font-size:25px;line-height:1.15;}
 header.top .title-block .date{margin-top:5px;color:var(--muted);font-size:13.5px;}
+header.top .title-block .date a{color:var(--muted);text-decoration:none;}
+header.top .title-block .date a:hover{color:var(--accent);}
 .streak{
   background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:12px 20px;
   text-align:center;min-width:92px;flex-shrink:0;
@@ -205,8 +215,15 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
 <div class="wrap">
   <header class="top">
     <div class="title-block">
-      <h1>Huid &amp; Haar Ritueel</h1>
-      <div class="date" id="todayLabel">—</div>
+      <div class="title-line">
+        <svg class="logo-mark" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <rect width="100" height="100" rx="22" fill="#0E7A57"/>
+          <path d="M50 21 C50 21 29 47 29 61.5 C29 73.4 38.4 82 50 82 C61.6 82 71 73.4 71 61.5 C71 47 50 21 50 21 Z" fill="#FFFFFF"/>
+          <path d="M40.5 61 L47 67.5 L60.5 51.5" fill="none" stroke="#0E7A57" stroke-width="6.2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <h1>Huid &amp; Haar Ritueel</h1>
+      </div>
+      <div class="date"><span id="todayLabel">—</span> · <a href="/api/logout">uitloggen</a></div>
     </div>
     <div class="streak">
       <div class="num" id="streakNum">0</div>

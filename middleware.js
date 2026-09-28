@@ -1,31 +1,26 @@
 import { NextResponse } from "next/server";
+import { AUTH_COOKIE, authConfigured, verifySessionCookie } from "./lib/auth";
 
-export function middleware(request) {
-  const user = process.env.AUTH_USER;
-  const pass = process.env.AUTH_PASS;
+const PUBLIC_PATHS = ["/login", "/api/login", "/api/logout"];
 
-  if (!user || !pass) return NextResponse.next();
+export async function middleware(request) {
+  if (!authConfigured()) return NextResponse.next();
 
-  const header = request.headers.get("authorization");
-  if (header) {
-    const [scheme, encoded] = header.split(" ");
-    if (scheme === "Basic" && encoded) {
-      const decoded = Buffer.from(encoded, "base64").toString("utf-8");
-      const sep = decoded.indexOf(":");
-      const gotUser = decoded.slice(0, sep);
-      const gotPass = decoded.slice(sep + 1);
-      if (gotUser === user && gotPass === pass) {
-        return NextResponse.next();
-      }
-    }
+  const { pathname } = request.nextUrl;
+  if (PUBLIC_PATHS.includes(pathname)) return NextResponse.next();
+
+  const cookie = request.cookies.get(AUTH_COOKIE)?.value;
+  const ok = await verifySessionCookie(cookie);
+  if (ok) return NextResponse.next();
+
+  if (pathname.startsWith("/api/")) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  return new NextResponse("Authenticatie vereist", {
-    status: 401,
-    headers: { "WWW-Authenticate": 'Basic realm="Huid & Haar Ritueel"' }
-  });
+  const loginUrl = new URL("/login", request.url);
+  return NextResponse.redirect(loginUrl);
 }
 
 export const config = {
-  matcher: "/((?!_next/static|_next/image|favicon.ico).*)"
+  matcher: "/((?!_next/static|_next/image|favicon|icon|apple-touch-icon|manifest).*)"
 };
