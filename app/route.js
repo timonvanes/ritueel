@@ -88,6 +88,20 @@ nav.tabs button:focus-visible{outline:2px solid var(--accent);outline-offset:2px
 
 .banner{background:var(--surface-2);border:1px dashed var(--border);border-radius:12px;padding:12px 14px;font-size:13.5px;color:var(--muted);}
 
+.daynav{display:flex;align-items:center;justify-content:center;gap:14px;margin-bottom:16px;}
+.daynav .navbtn{
+  width:38px;height:38px;border-radius:50%;border:1px solid var(--border);background:var(--surface);
+  color:var(--ink);font-size:18px;font-family:"Manrope",sans-serif;font-weight:700;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;flex-shrink:0;
+}
+.daynav .navbtn:disabled{opacity:.25;cursor:default;}
+.daynav #dayLabel{
+  background:none;border:none;font-family:"Manrope",sans-serif;font-weight:700;font-size:15px;color:var(--ink);
+  cursor:pointer;padding:6px 10px;border-radius:10px;min-width:170px;text-align:center;
+}
+.daynav #dayLabel:hover{background:var(--surface-2);}
+.daynav #dayLabel.is-today{color:var(--accent);}
+
 .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
 @media (max-width:640px){.grid-2{grid-template-columns:1fr;}}
 
@@ -150,6 +164,7 @@ nav.tabs button:focus-visible{outline:2px solid var(--accent);outline-offset:2px
 .hist-day{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;}
 .hist-box{width:100%;aspect-ratio:1;border-radius:9px;background:var(--surface-2);border:1px solid var(--border);position:relative;overflow:hidden;}
 .hist-box.today{border-color:var(--accent);border-width:2px;}
+.hist-box.viewed{box-shadow:0 0 0 2px var(--ink) inset;}
 .hist-fill{position:absolute;left:0;bottom:0;width:100%;background:var(--done);}
 .hist-day .dlabel{font-family:"Work Sans",sans-serif;font-size:10.5px;color:var(--muted);}
 
@@ -246,12 +261,10 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
   </nav>
 
   <section id="tab-vandaag">
-    <div class="card" id="card-flex" style="margin-bottom:16px;">
-      <div class="card-head">
-        <h2>Wanneer het uitkomt</h2>
-        <span class="count" id="count-flex">0/0</span>
-      </div>
-      <div class="rows" id="rows-flex"></div>
+    <div class="daynav" id="dayNav">
+      <button type="button" class="navbtn" id="dayPrev" aria-label="Vorige dag">‹</button>
+      <button type="button" id="dayLabel">Vandaag</button>
+      <button type="button" class="navbtn" id="dayNext" aria-label="Volgende dag">›</button>
     </div>
 
     <div class="grid-2">
@@ -297,7 +310,6 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
         <div class="seg" id="seg-time">
           <button type="button" data-val="ochtend">Ochtend</button>
           <button type="button" data-val="avond">Avond</button>
-          <button type="button" data-val="flex">Wanneer het uitkomt</button>
         </div>
       </div>
       <div class="frow">
@@ -375,13 +387,27 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
   document.getElementById("todayLabel").textContent =
     DAYS[todayWeekday].charAt(0).toUpperCase()+DAYS[todayWeekday].slice(1)+" "+todayDate.getDate()+" "+MONTHS[todayDate.getMonth()];
 
+  function addDaysId(id,n){ return fmtId(addDays(parseId(id), n)); }
+
   var state = {
     readOnly: true,
     steps: [],
     categories: [],
-    todayLog: { date: todayId, done: {}, skipped: {}, total: 0 },
+    viewedId: todayId,
     logsByDate: {}
   };
+
+  function currentLog(){
+    return state.logsByDate[state.viewedId] || { date: state.viewedId, done:{}, skipped:{}, total:0 };
+  }
+  function viewedWeekday(){
+    return parseId(state.viewedId).getDay();
+  }
+  // Steps stored with the old "flex" moment (before this card existed)
+  // fall back to Ochtend so they stay visible instead of disappearing.
+  function momentOf(step){
+    return step.moment==="avond" ? "avond" : "ochtend";
+  }
 
   var CATEGORY_COLORS = ["#0E7A57","#64748B","#B45309","#6D28D9","#0369A1","#BE185D"];
   function categoryColor(catId){
@@ -397,16 +423,18 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
   function daysBetweenIds(id1,id2){
     return Math.round((parseId(id2)-parseId(id1))/86400000);
   }
-  function last21Dates(){
+  // Covers enough past/future days to browse around today without extra
+  // fetches: /api/logs caps at 60 dates per call, this uses 45.
+  function datesInWindow(){
     var out = [];
-    for(var i=0;i<21;i++) out.push(fmtId(addDays(todayDate,-i)));
+    for(var i=30;i>=-14;i--) out.push(fmtId(addDays(todayDate,-i)));
     return out;
   }
 
   function findLastDone(stepId){
     var best = null;
     Object.keys(state.logsByDate).forEach(function(id){
-      if(id>todayId) return;
+      if(id>state.viewedId) return;
       var log = state.logsByDate[id];
       if(log && log.done && log.done[stepId] && !(log.skipped && log.skipped[stepId])){
         if(!best || id>best) best = id;
@@ -430,7 +458,7 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
     if(type==="interval"){
       var last = findLastDone(step.id);
       if(!last) return true;
-      return daysBetweenIds(last, todayId) >= (step.everyDays||1);
+      return daysBetweenIds(last, state.viewedId) >= (step.everyDays||1);
     }
     if(type==="linked"){
       seen = seen || {};
@@ -439,15 +467,15 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
       var target = findStep(step.linkedTo);
       return target ? isStepDue(target, seen) : true;
     }
-    return (step.days||[]).indexOf(todayWeekday)!==-1;
+    return (step.days||[]).indexOf(viewedWeekday())!==-1;
   }
 
   function stepsForDay(){
-    // Applicable-today set used for the daily total/streak count. Includes
-    // anything already logged today even if a fresh isStepDue() would now
-    // say otherwise (checking an interval step moves its own due date, so
-    // without this it would vanish from the count the instant it's ticked).
-    return state.steps.filter(function(s){ return isStepDue(s) || stepLoggedToday(s); });
+    // Applicable set for the viewed day's total/streak count. Includes
+    // anything already logged that day even if a fresh isStepDue() would
+    // now say otherwise (checking an interval step moves its own due date,
+    // so without this it would vanish from the count the instant it's ticked).
+    return state.steps.filter(function(s){ return isStepDue(s) || stepLoggedOnViewed(s); });
   }
 
   // Among steps linked to the same target, suggest whichever was used
@@ -469,9 +497,8 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
   function intervalHintText(step){
     var last = findLastDone(step.id);
     if(!last) return "Nog niet eerder gelogd — begin wanneer je wilt";
-    var daysSince = daysBetweenIds(last, todayId);
-    if(daysSince<=0) return "Vandaag al gedaan";
-    var since = daysSince===1 ? "Gisteren gedaan" : daysSince+" dagen geleden gedaan";
+    var daysSince = daysBetweenIds(last, state.viewedId);
+    var since = daysSince<=0 ? "Op deze dag gedaan" : daysSince===1 ? "1 dag eerder gedaan" : daysSince+" dagen eerder gedaan";
     var nextIn = Math.max(0, (step.everyDays||1) - daysSince);
     if(nextIn<=0) return since+" · aanbevolen: nu weer";
     var next = nextIn===1 ? "volgende keer over 1 dag" : "volgende keer over "+nextIn+" dagen";
@@ -514,7 +541,9 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
       var day = document.createElement("div");
       day.className = "hist-day";
       var box = document.createElement("div");
-      box.className = "hist-box"+(id===todayId?" today":"");
+      box.className = "hist-box"+(id===todayId?" today":"")+(id===state.viewedId?" viewed":"");
+      box.style.cursor = "pointer";
+      box.addEventListener("click", (function(forId){ return function(){ goToDate(forId); }; })(id));
       var fill = document.createElement("div");
       fill.className = "hist-fill";
       fill.style.height = pct+"%";
@@ -568,7 +597,7 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
       nameLine.appendChild(tag);
     }
     body.appendChild(nameLine);
-    var noteText = isSkipped ? "Overgeslagen vandaag" : (step.notes||"");
+    var noteText = isSkipped ? "Overgeslagen" : (step.notes||"");
     if(!isSkipped && step.scheduleType==="interval"){
       var hint = intervalHintText(step);
       noteText = noteText ? noteText+" · "+hint : hint;
@@ -582,13 +611,15 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
     return body;
   }
 
-  function stepLoggedToday(step){
-    return !!state.todayLog.done[step.id] || !!(state.todayLog.skipped && state.todayLog.skipped[step.id]);
+  function stepLoggedOnViewed(step){
+    var log = currentLog();
+    return !!log.done[step.id] || !!(log.skipped && log.skipped[step.id]);
   }
 
   function buildRow(step){
-    var skipped = !!(state.todayLog.skipped && state.todayLog.skipped[step.id]);
-    var checked = !!state.todayLog.done[step.id];
+    var log = currentLog();
+    var skipped = !!(log.skipped && log.skipped[step.id]);
+    var checked = !!log.done[step.id];
     var wrap = document.createElement("div");
     wrap.className = "row-wrap"+(skipped?" skipped":"");
 
@@ -630,25 +661,26 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
   function renderRoutine(moment, mountId, countId){
     var mount = document.getElementById(mountId);
     mount.innerHTML = "";
+    var log = currentLog();
 
-    var momentSteps = state.steps.filter(function(s){ return s.moment===moment; });
-    var dueItems = momentSteps.filter(function(s){ return isStepDue(s) || stepLoggedToday(s); });
+    var momentSteps = state.steps.filter(function(s){ return momentOf(s)===moment; });
+    var dueItems = momentSteps.filter(function(s){ return isStepDue(s) || stepLoggedOnViewed(s); });
     var notDueFlexible = momentSteps.filter(function(s){
-      return !isStepDue(s) && !stepLoggedToday(s) && (s.scheduleType==="interval" || s.scheduleType==="linked");
+      return !isStepDue(s) && !stepLoggedOnViewed(s) && (s.scheduleType==="interval" || s.scheduleType==="linked");
     });
 
     var doneN = 0, totalN = 0;
     dueItems.forEach(function(it){
-      if(state.todayLog.skipped && state.todayLog.skipped[it.id]) return;
+      if(log.skipped && log.skipped[it.id]) return;
       totalN++;
-      if(state.todayLog.done[it.id]) doneN++;
+      if(log.done[it.id]) doneN++;
     });
     document.getElementById(countId).textContent = doneN+"/"+totalN;
 
     if(dueItems.length===0 && notDueFlexible.length===0){
       var empty = document.createElement("div");
       empty.className = "empty-row";
-      empty.textContent = "Niets gepland vandaag.";
+      empty.textContent = "Niets gepland.";
       mount.appendChild(empty);
       return;
     }
@@ -676,11 +708,35 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
   }
 
   function highlightActiveTime(){
+    var isToday = state.viewedId===todayId;
     var hour = new Date().getHours();
     var activeIsEvening = hour>=15;
-    document.getElementById("card-ochtend").classList.toggle("active-time", !activeIsEvening);
-    document.getElementById("card-avond").classList.toggle("active-time", activeIsEvening);
+    document.getElementById("card-ochtend").classList.toggle("active-time", isToday && !activeIsEvening);
+    document.getElementById("card-avond").classList.toggle("active-time", isToday && activeIsEvening);
   }
+
+  function updateDayNav(){
+    var diff = daysBetweenIds(todayId, state.viewedId);
+    var label = document.getElementById("dayLabel");
+    if(diff===0) label.textContent = "Vandaag";
+    else if(diff===1) label.textContent = "Morgen";
+    else if(diff===-1) label.textContent = "Gisteren";
+    else {
+      var d = parseId(state.viewedId);
+      label.textContent = DAYS[d.getDay()].charAt(0).toUpperCase()+DAYS[d.getDay()].slice(1)+" "+d.getDate()+" "+MONTHS[d.getMonth()];
+    }
+    label.classList.toggle("is-today", diff===0);
+    document.getElementById("dayPrev").disabled = state.logsByDate[addDaysId(state.viewedId,-1)]===undefined;
+    document.getElementById("dayNext").disabled = state.logsByDate[addDaysId(state.viewedId,1)]===undefined;
+  }
+  function goToDate(id){
+    if(state.logsByDate[id]===undefined) return;
+    state.viewedId = id;
+    renderAll();
+  }
+  document.getElementById("dayPrev").addEventListener("click", function(){ goToDate(addDaysId(state.viewedId,-1)); });
+  document.getElementById("dayNext").addEventListener("click", function(){ goToDate(addDaysId(state.viewedId,1)); });
+  document.getElementById("dayLabel").addEventListener("click", function(){ goToDate(todayId); });
 
   function renderProducts(){
     var mount = document.getElementById("productList");
@@ -713,7 +769,7 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
         tags.className = "ptags";
         var t1 = document.createElement("span");
         t1.className = "tag";
-        t1.textContent = s.moment==="ochtend"?"Ochtend":s.moment==="avond"?"Avond":"Wanneer het uitkomt";
+        t1.textContent = momentOf(s)==="ochtend"?"Ochtend":"Avond";
         var t2 = document.createElement("span");
         t2.className = "tag";
         t2.textContent = scheduleLabel(s);
@@ -764,13 +820,13 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
   }
 
   function renderAll(){
-    renderRoutine("flex","rows-flex","count-flex");
     renderRoutine("ochtend","rows-ochtend","count-ochtend");
     renderRoutine("avond","rows-avond","count-avond");
     renderHistory();
     renderStreak();
     renderProducts();
     highlightActiveTime();
+    updateDayNav();
   }
 
   var TAB_IDS = ["vandaag","producten","instellingen"];
@@ -887,7 +943,7 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
     document.getElementById("f-name").value = step ? step.name : "";
     document.getElementById("f-notes").value = step ? (step.notes||"") : "";
     formCat = step ? step.category : (state.categories[0] ? state.categories[0].id : "huid");
-    formTime = step ? step.moment : "ochtend";
+    formTime = step ? momentOf(step) : "ochtend";
     formScheduleType = step ? (step.scheduleType || "weekly") : "weekly";
     formDays = step && step.days ? step.days.slice() : [1,2,3,4,5,6,0];
     document.getElementById("f-every").value = step && step.everyDays ? step.everyDays : "2";
@@ -938,21 +994,22 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
     });
   }
 
-  function saveTodayLog(done, skipped){
+  function saveViewedLog(done, skipped){
     var applicable = stepsForDay();
     var skippedApplicable = applicable.filter(function(s){ return !!skipped[s.id]; }).length;
     var total = applicable.length - skippedApplicable;
     var body = { done: done, skipped: skipped, total: total };
-    state.todayLog = Object.assign({date:todayId}, body);
-    state.logsByDate[todayId] = state.todayLog;
+    var id = state.viewedId;
+    state.logsByDate[id] = Object.assign({date:id}, body);
     renderAll();
-    api("/api/logs/"+todayId, { method:"PUT", headers:{"Content-Type":"application/json"}, body: JSON.stringify(body) })
+    api("/api/logs/"+id, { method:"PUT", headers:{"Content-Type":"application/json"}, body: JSON.stringify(body) })
       .catch(function(){});
   }
   function toggleDone(key){
     if(state.readOnly) return;
-    if(state.todayLog.skipped && state.todayLog.skipped[key]) return;
-    var newDone = Object.assign({}, state.todayLog.done);
+    var log = currentLog();
+    if(log.skipped && log.skipped[key]) return;
+    var newDone = Object.assign({}, log.done);
     newDone[key] = !newDone[key];
     if(newDone[key]){
       var step = findStep(key);
@@ -961,15 +1018,16 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
           .forEach(function(sib){ newDone[sib.id] = false; });
       }
     }
-    saveTodayLog(newDone, state.todayLog.skipped||{});
+    saveViewedLog(newDone, log.skipped||{});
   }
   function toggleSkip(key){
     if(state.readOnly) return;
-    var newSkipped = Object.assign({}, state.todayLog.skipped||{});
-    var newDone = Object.assign({}, state.todayLog.done);
+    var log = currentLog();
+    var newSkipped = Object.assign({}, log.skipped||{});
+    var newDone = Object.assign({}, log.done);
     newSkipped[key] = !newSkipped[key];
     if(newSkipped[key]) newDone[key] = false;
-    saveTodayLog(newDone, newSkipped);
+    saveViewedLog(newDone, newSkipped);
   }
 
   function createStepApi(data){
@@ -993,7 +1051,7 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
   }
 
   function loadAll(){
-    var dates = last21Dates();
+    var dates = datesInWindow();
     Promise.all([
       api("/api/steps"),
       api("/api/logs?dates="+dates.join(",")),
@@ -1008,7 +1066,6 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
           ? Object.assign({date:d, done:{}, skipped:{}}, logsMap[d])
           : {date:d, done:{}, skipped:{}, total:0};
       });
-      state.todayLog = state.logsByDate[todayId];
       state.readOnly = false;
       document.getElementById("offlineBanner").hidden = true;
       renderAll();
