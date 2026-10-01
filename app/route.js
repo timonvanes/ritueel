@@ -181,6 +181,7 @@ nav.tabs button:focus-visible{outline:2px solid var(--accent);outline-offset:2px
 }
 .btn.block{width:100%;}
 .btn.ghost{background:none;border-color:transparent;color:var(--muted);padding:8px 10px;font-size:13px;min-height:40px;}
+.btn.dashed{color:var(--accent);border:1.5px dashed var(--accent);background:none;font-size:13px;padding:8px 14px;min-height:38px;}
 .btn.danger-step{color:var(--danger);}
 .btn:active{transform:scale(.98);}
 .btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
@@ -200,6 +201,13 @@ form.pform input[type="text"],form.pform textarea{
   width:100%;resize:vertical;
 }
 form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px solid var(--accent);outline-offset:1px;}
+form.pform select.dropdown{
+  font-family:"Work Sans",sans-serif;font-size:16px;color:var(--ink);
+  background:var(--surface-2);border:1.5px solid var(--border);border-radius:10px;padding:12px 13px;
+  width:100%;
+}
+form.pform select.dropdown[multiple]{padding:6px;min-height:128px;}
+form.pform select.dropdown:focus-visible{outline:2px solid var(--accent);outline-offset:1px;}
 #dayNote{
   font-family:"Work Sans",sans-serif;font-size:15px;color:var(--ink);
   background:var(--surface-2);border:1.5px solid var(--border);border-radius:10px;padding:12px 13px;
@@ -213,7 +221,6 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
   border-radius:22px;padding:9px 16px;cursor:pointer;min-height:40px;
 }
 .seg button.on{background:var(--ink);color:var(--surface);border-color:var(--ink);}
-.seg button.add-cat{color:var(--accent);border-color:var(--accent);border-style:dashed;background:none;}
 .seg.days button{padding:9px 13px;min-width:44px;}
 .seg-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
 .seg-row .allday{font-size:12px;padding:7px 12px;min-height:34px;color:var(--accent);border-color:var(--accent);background:none;}
@@ -331,8 +338,9 @@ form.pform input.rs-parts{width:52px!important;text-align:center;flex:0 0 auto;}
         <textarea id="f-ingredients" rows="3" placeholder="bv. Aqua, Sodium Laureth Sulfate, Cocamidopropyl Betaine, ..."></textarea>
       </div>
       <div class="frow">
-        <label>Categorie</label>
-        <div class="seg" id="seg-cat"></div>
+        <label for="f-cat">Categorie</label>
+        <select id="f-cat" class="dropdown"></select>
+        <button type="button" class="btn dashed" id="btnNewCat" style="align-self:flex-start;">+ Nieuwe categorie</button>
       </div>
       <div class="frow">
         <label>Moment</label>
@@ -369,8 +377,8 @@ form.pform input.rs-parts{width:52px!important;text-align:center;flex:0 0 auto;}
         <input type="text" inputmode="numeric" id="f-every" placeholder="bv. 2">
       </div>
       <div class="frow" id="schedLinked" hidden>
-        <label>Gekoppeld aan</label>
-        <div class="seg" id="seg-linked"></div>
+        <label for="f-linked">Gekoppeld aan</label>
+        <select id="f-linked" class="dropdown"></select>
         <label style="margin-top:8px;">Verdeling</label>
         <div class="seg" id="seg-ratio-mode">
           <button type="button" data-val="pct">Percentage</button>
@@ -379,8 +387,8 @@ form.pform input.rs-parts{width:52px!important;text-align:center;flex:0 0 auto;}
         <div id="ratio-sliders" class="ratio-sliders" style="margin-top:4px;"></div>
       </div>
       <div class="frow">
-        <label>Conflicteert met (niet combineren op dezelfde dag)</label>
-        <div class="seg" id="seg-conflicts"></div>
+        <label for="f-conflicts">Conflicteert met (niet combineren op dezelfde dag — geldt dan automatisch ook omgekeerd)</label>
+        <select id="f-conflicts" class="dropdown" multiple></select>
       </div>
       <div class="frow">
         <label for="f-notes">Notitie (optioneel)</label>
@@ -1134,27 +1142,21 @@ form.pform input.rs-parts{width:52px!important;text-align:center;flex:0 0 auto;}
     });
   }
   function renderCategorySeg(){
-    var container = document.getElementById("seg-cat");
-    container.innerHTML = "";
+    var select = document.getElementById("f-cat");
+    select.innerHTML = "";
     state.categories.forEach(function(c){
-      var b = document.createElement("button");
-      b.type = "button";
-      b.dataset.val = c.id;
-      b.textContent = c.name;
-      b.className = formCat===c.id ? "on" : "";
-      b.addEventListener("click", function(){ formCat=c.id; renderCategorySeg(); });
-      container.appendChild(b);
+      var opt = document.createElement("option");
+      opt.value = c.id;
+      opt.textContent = c.name;
+      select.appendChild(opt);
     });
-    var addBtn = document.createElement("button");
-    addBtn.type = "button";
-    addBtn.className = "add-cat";
-    addBtn.textContent = "+ Nieuw";
-    addBtn.addEventListener("click", function(){
-      var name = window.prompt("Naam van de nieuwe categorie:");
-      if(name && name.trim()){ createCategoryApi(name.trim()); }
-    });
-    container.appendChild(addBtn);
+    select.value = formCat;
   }
+  document.getElementById("f-cat").addEventListener("change", function(){ formCat = this.value; });
+  document.getElementById("btnNewCat").addEventListener("click", function(){
+    var name = window.prompt("Naam van de nieuwe categorie:");
+    if(name && name.trim()){ createCategoryApi(name.trim()); }
+  });
   function createCategoryApi(name){
     api("/api/categories", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({name:name}) })
       .then(function(cat){
@@ -1205,14 +1207,14 @@ form.pform input.rs-parts{width:52px!important;text-align:center;flex:0 0 auto;}
     });
   });
   function renderLinkedSeg(){
-    var container = document.getElementById("seg-linked");
-    container.innerHTML = "";
+    var select = document.getElementById("f-linked");
+    select.innerHTML = "";
     var options = state.steps.filter(function(s){ return s.id!==editingId; });
     if(options.length===0){
-      var empty = document.createElement("div");
-      empty.className = "row-notes";
+      var empty = document.createElement("option");
       empty.textContent = "Nog geen ander product om aan te koppelen.";
-      container.appendChild(empty);
+      select.appendChild(empty);
+      formLinkedTo = null;
       document.getElementById("ratio-sliders").innerHTML = "";
       return;
     }
@@ -1220,16 +1222,15 @@ form.pform input.rs-parts{width:52px!important;text-align:center;flex:0 0 auto;}
       formLinkedTo = options[0].id;
     }
     options.forEach(function(s){
-      var b = document.createElement("button");
-      b.type = "button";
-      b.dataset.val = s.id;
-      b.textContent = s.name;
-      b.className = formLinkedTo===s.id ? "on" : "";
-      b.addEventListener("click", function(){ formLinkedTo=s.id; renderLinkedSeg(); });
-      container.appendChild(b);
+      var opt = document.createElement("option");
+      opt.value = s.id;
+      opt.textContent = s.name;
+      select.appendChild(opt);
     });
+    select.value = formLinkedTo;
     initRatioGroup();
   }
+  document.getElementById("f-linked").addEventListener("change", function(){ formLinkedTo = this.value; initRatioGroup(); });
 
   // The "Verdeling" sliders: one row per product already linked to the
   // chosen target, plus the product being edited/created. Two input modes
@@ -1380,31 +1381,27 @@ form.pform input.rs-parts{width:52px!important;text-align:center;flex:0 0 auto;}
   }
 
   function renderConflictSeg(){
-    var container = document.getElementById("seg-conflicts");
-    container.innerHTML = "";
+    var select = document.getElementById("f-conflicts");
+    select.innerHTML = "";
     var options = state.steps.filter(function(s){ return s.id!==editingId; });
     if(options.length===0){
-      var empty = document.createElement("div");
-      empty.className = "row-notes";
+      var empty = document.createElement("option");
       empty.textContent = "Nog geen ander product om te kiezen.";
-      container.appendChild(empty);
+      select.appendChild(empty);
       return;
     }
     formConflicts = formConflicts.filter(function(id){ return options.some(function(s){ return s.id===id; }); });
     options.forEach(function(s){
-      var b = document.createElement("button");
-      b.type = "button";
-      b.dataset.val = s.id;
-      b.textContent = s.name;
-      b.className = formConflicts.indexOf(s.id)!==-1 ? "on" : "";
-      b.addEventListener("click", function(){
-        var idx = formConflicts.indexOf(s.id);
-        if(idx===-1) formConflicts.push(s.id); else formConflicts.splice(idx,1);
-        renderConflictSeg();
-      });
-      container.appendChild(b);
+      var opt = document.createElement("option");
+      opt.value = s.id;
+      opt.textContent = s.name;
+      opt.selected = formConflicts.indexOf(s.id)!==-1;
+      select.appendChild(opt);
     });
   }
+  document.getElementById("f-conflicts").addEventListener("change", function(){
+    formConflicts = Array.prototype.slice.call(this.selectedOptions).map(function(o){ return o.value; }).filter(Boolean);
+  });
 
   function openForm(step){
     editingId = step ? step.id : null;
@@ -1460,7 +1457,15 @@ form.pform input.rs-parts{width:52px!important;text-align:center;flex:0 0 auto;}
       data.days = ALL_DAYS.slice();
     }
     data.conflictsWith = formConflicts.slice();
-    if(editingId){ updateStepApi(editingId, data); } else { createStepApi(data); }
+    if(editingId){
+      var beforeConflicts = ((findStep(editingId)||{}).conflictsWith || []).slice();
+      updateStepApi(editingId, data);
+      syncReciprocalConflicts(editingId, beforeConflicts, data.conflictsWith);
+    } else {
+      createStepApi(data).then(function(newStep){
+        if(newStep) syncReciprocalConflicts(newStep.id, [], data.conflictsWith);
+      });
+    }
     closeForm();
   });
 
@@ -1552,18 +1557,41 @@ form.pform input.rs-parts{width:52px!important;text-align:center;flex:0 0 auto;}
   }
 
   function createStepApi(data){
-    api("/api/steps", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(data) })
-      .then(function(step){ state.steps.push(step); renderAll(); })
-      .catch(function(){});
+    return api("/api/steps", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(data) })
+      .then(function(step){ state.steps.push(step); renderAll(); return step; })
+      .catch(function(){ return null; });
   }
   function updateStepApi(id, data){
-    api("/api/steps/"+id, { method:"PATCH", headers:{"Content-Type":"application/json"}, body: JSON.stringify(data) })
+    return api("/api/steps/"+id, { method:"PATCH", headers:{"Content-Type":"application/json"}, body: JSON.stringify(data) })
       .then(function(step){
         var idx = state.steps.findIndex(function(s){ return s.id===id; });
         if(idx!==-1) state.steps[idx] = step;
         renderAll();
+        return step;
       })
-      .catch(function(){});
+      .catch(function(){ return null; });
+  }
+  // Conflicts are symmetric: if A conflicts with B, B conflicts with A too,
+  // without needing to open B's own editor to say so. Applied as a one-level
+  // reciprocal patch to just the products whose conflict with THIS one
+  // actually changed — not a cascade, so it can't loop.
+  function syncReciprocalConflicts(selfId, beforeIds, afterIds){
+    var touched = {};
+    beforeIds.forEach(function(id){ touched[id]=true; });
+    afterIds.forEach(function(id){ touched[id]=true; });
+    Object.keys(touched).forEach(function(id){
+      var wasIn = beforeIds.indexOf(id)!==-1;
+      var isIn = afterIds.indexOf(id)!==-1;
+      if(wasIn===isIn) return;
+      var sib = findStep(id);
+      if(!sib) return;
+      var sibConflicts = (sib.conflictsWith || []).slice();
+      var idx = sibConflicts.indexOf(selfId);
+      if(isIn && idx===-1) sibConflicts.push(selfId);
+      else if(!isIn && idx!==-1) sibConflicts.splice(idx,1);
+      else return;
+      updateStepApi(id, { conflictsWith: sibConflicts });
+    });
   }
   function deleteStepApi(id){
     api("/api/steps/"+id, { method:"DELETE" })
