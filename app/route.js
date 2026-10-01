@@ -217,8 +217,12 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
 .seg.days button{padding:9px 13px;min-width:44px;}
 .seg-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
 .seg-row .allday{font-size:12px;padding:7px 12px;min-height:34px;color:var(--accent);border-color:var(--accent);background:none;}
-form.pform input.ratio-input{width:56px;text-align:center;flex:0 0 auto;}
-.ratio-label{font-family:"Work Sans",sans-serif;font-size:13.5px;color:var(--muted);}
+.ratio-sliders{display:flex;flex-direction:column;gap:12px;}
+.ratio-slider-row{display:flex;align-items:center;gap:10px;}
+.ratio-slider-row .rs-name{flex:1;font-size:13px;color:var(--ink);min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.ratio-slider-row input[type="range"]{flex:2;accent-color:var(--accent);min-width:0;}
+.ratio-slider-row .rs-pct{width:42px;text-align:right;font-family:"Manrope",sans-serif;font-weight:700;font-size:13.5px;flex-shrink:0;}
+.ratio-hint{font-size:12.5px;color:var(--muted);}
 .form-actions{display:flex;gap:10px;}
 .form-actions .btn{flex:1;}
 
@@ -366,13 +370,8 @@ form.pform input.ratio-input{width:56px;text-align:center;flex:0 0 auto;}
       <div class="frow" id="schedLinked" hidden>
         <label>Gekoppeld aan</label>
         <div class="seg" id="seg-linked"></div>
-        <label style="margin-top:8px;">Hoe vaak (optioneel)</label>
-        <div class="seg-row">
-          <input type="text" inputmode="numeric" id="f-ratio-n" class="ratio-input" placeholder="1">
-          <span class="ratio-label">op de</span>
-          <input type="text" inputmode="numeric" id="f-ratio-of" class="ratio-input" placeholder="3">
-          <span class="ratio-label">keer. Leeg = wisselt standaard af</span>
-        </div>
+        <label style="margin-top:8px;">Verdeling (schuift automatisch naar 100%)</label>
+        <div id="ratio-sliders" class="ratio-sliders"></div>
       </div>
       <div class="frow">
         <label>Conflicteert met (niet combineren op dezelfde dag)</label>
@@ -752,7 +751,7 @@ form.pform input.ratio-input{width:56px;text-align:center;flex:0 0 auto;}
     return sorted.map(function(w){ return DAY_LABEL[w]; }).join(" ");
   }
   function ratioLabel(s){
-    if(s.ratioN>0 && s.ratioOf>0) return s.ratioN+" op de "+s.ratioOf+" keer";
+    if(s.ratioN>0 && s.ratioOf>0) return s.ratioOf===100 ? s.ratioN+"% van de keren" : s.ratioN+" op de "+s.ratioOf+" keer";
     if(s.occurrenceEvery>1) return "1 op de "+s.occurrenceEvery+" keer";
     return null;
   }
@@ -1209,6 +1208,7 @@ form.pform input.ratio-input{width:56px;text-align:center;flex:0 0 auto;}
       empty.className = "row-notes";
       empty.textContent = "Nog geen ander product om aan te koppelen.";
       container.appendChild(empty);
+      document.getElementById("ratio-sliders").innerHTML = "";
       return;
     }
     if(!formLinkedTo || !options.some(function(s){ return s.id===formLinkedTo; })){
@@ -1222,6 +1222,107 @@ form.pform input.ratio-input{width:56px;text-align:center;flex:0 0 auto;}
       b.className = formLinkedTo===s.id ? "on" : "";
       b.addEventListener("click", function(){ formLinkedTo=s.id; renderLinkedSeg(); });
       container.appendChild(b);
+    });
+    initRatioGroup();
+  }
+
+  // The "Verdeling" sliders: one row per product already linked to the
+  // chosen target, plus the product being edited/created, all sharing a
+  // single pool of 100%. Dragging one row's slider rebalances the others
+  // proportionally so the total always stays at 100 — no separate "do
+  // these add up" check needed, it simply can't drift out of sync.
+  var formRatioGroup = [];
+  var ratioSliderEls = [];
+  function ratioPctOf(s){
+    if(s.ratioN>0 && s.ratioOf>0) return Math.round((s.ratioN/s.ratioOf)*100);
+    if(s.occurrenceEvery>1) return Math.round((1/s.occurrenceEvery)*100);
+    return null;
+  }
+  function selfRatioId(){ return editingId || "__self__"; }
+  function initRatioGroup(){
+    var siblings = state.steps.filter(function(s){ return s.scheduleType==="linked" && s.linkedTo===formLinkedTo && s.id!==editingId; });
+    var group = siblings.map(function(s){ return { id:s.id, name:s.name, pct: ratioPctOf(s) }; });
+    var selfStep = editingId ? findStep(editingId) : null;
+    var selfPct = (selfStep && selfStep.scheduleType==="linked" && selfStep.linkedTo===formLinkedTo) ? ratioPctOf(selfStep) : null;
+    group.push({ id: selfRatioId(), name: "Dit product", pct: selfPct });
+    var assigned = 0, unset = [];
+    group.forEach(function(g){ if(g.pct>0){ assigned+=g.pct; } else { unset.push(g); } });
+    var remainder = Math.max(0, 100-assigned);
+    if(unset.length>0){
+      var share = Math.floor(remainder/unset.length);
+      unset.forEach(function(g,i){ g.pct = (i===unset.length-1) ? (remainder-share*(unset.length-1)) : share; });
+    }
+    formRatioGroup = group;
+    renderRatioSliders();
+  }
+  function renderRatioSliders(){
+    var container = document.getElementById("ratio-sliders");
+    container.innerHTML = "";
+    ratioSliderEls = [];
+    if(formRatioGroup.length<2){
+      var hint = document.createElement("div");
+      hint.className = "ratio-hint";
+      hint.textContent = "Koppel nog een product aan hetzelfde doel om de verdeling in te stellen.";
+      container.appendChild(hint);
+      return;
+    }
+    formRatioGroup.forEach(function(g, idx){
+      var row = document.createElement("div");
+      row.className = "ratio-slider-row";
+      var name = document.createElement("span");
+      name.className = "rs-name";
+      name.textContent = g.id===selfRatioId() ? (document.getElementById("f-name").value.trim() || "Dit product") : g.name;
+      var slider = document.createElement("input");
+      slider.type = "range";
+      slider.min = "0"; slider.max = "100"; slider.step = "1";
+      slider.value = g.pct;
+      var pctLabel = document.createElement("span");
+      pctLabel.className = "rs-pct";
+      pctLabel.textContent = g.pct+"%";
+      slider.addEventListener("input", function(){
+        rebalanceRatioGroup(idx, parseInt(slider.value,10));
+        updateRatioSliderDisplay();
+      });
+      slider.addEventListener("change", persistSiblingRatios);
+      row.appendChild(name);
+      row.appendChild(slider);
+      row.appendChild(pctLabel);
+      container.appendChild(row);
+      ratioSliderEls.push({ slider: slider, pctLabel: pctLabel });
+    });
+  }
+  function updateRatioSliderDisplay(){
+    formRatioGroup.forEach(function(g, idx){
+      var els = ratioSliderEls[idx];
+      if(!els) return;
+      if(document.activeElement!==els.slider) els.slider.value = g.pct;
+      els.pctLabel.textContent = g.pct+"%";
+    });
+  }
+  function rebalanceRatioGroup(idx, newVal){
+    newVal = Math.max(0, Math.min(100, newVal));
+    formRatioGroup[idx].pct = newVal;
+    var others = formRatioGroup.filter(function(_,i){ return i!==idx; });
+    var remaining = 100-newVal;
+    var othersTotal = others.reduce(function(sum,g){ return sum+g.pct; }, 0);
+    if(others.length>0){
+      if(othersTotal<=0){
+        var even = Math.floor(remaining/others.length);
+        others.forEach(function(g,i){ g.pct = (i===others.length-1) ? (remaining-even*(others.length-1)) : even; });
+      } else {
+        var running = 0;
+        others.forEach(function(g,i){
+          if(i===others.length-1){ g.pct = remaining-running; }
+          else { g.pct = Math.round(g.pct/othersTotal*remaining); running += g.pct; }
+        });
+      }
+    }
+  }
+  function persistSiblingRatios(){
+    var selfId = selfRatioId();
+    formRatioGroup.forEach(function(g){
+      if(g.id===selfId) return;
+      updateStepApi(g.id, { ratioN: g.pct, ratioOf: 100 });
     });
   }
 
@@ -1263,8 +1364,6 @@ form.pform input.ratio-input{width:56px;text-align:center;flex:0 0 auto;}
     formScheduleType = step ? (step.scheduleType || "weekly") : "weekly";
     formDays = step && step.days ? step.days.slice() : [1,2,3,4,5,6,0];
     document.getElementById("f-every").value = step && step.everyDays ? step.everyDays : "2";
-    document.getElementById("f-ratio-n").value = step && step.ratioN ? step.ratioN : "";
-    document.getElementById("f-ratio-of").value = step && step.ratioOf ? step.ratioOf : "";
     formLinkedTo = step ? (step.linkedTo || null) : null;
     formConflicts = step && step.conflictsWith ? step.conflictsWith.slice() : [];
     renderCategorySeg();
@@ -1303,9 +1402,8 @@ form.pform input.ratio-input{width:56px;text-align:center;flex:0 0 auto;}
     } else if(formScheduleType==="linked"){
       if(!formLinkedTo) return;
       data.linkedTo = formLinkedTo;
-      var rn = parseInt(document.getElementById("f-ratio-n").value, 10);
-      var ro = parseInt(document.getElementById("f-ratio-of").value, 10);
-      if(rn>0 && ro>0){ data.ratioN = rn; data.ratioOf = ro; }
+      var selfEntry = formRatioGroup.filter(function(g){ return g.id===selfRatioId(); })[0];
+      if(selfEntry && formRatioGroup.length>1){ data.ratioN = selfEntry.pct; data.ratioOf = 100; }
       data.days = ALL_DAYS.slice();
     }
     data.conflictsWith = formConflicts.slice();
