@@ -157,6 +157,8 @@ nav.tabs button:focus-visible{outline:2px solid var(--accent);outline-offset:2px
 .skip-btn:hover{background:var(--surface-2);color:var(--ink);}
 .skip-btn.active{color:var(--accent);}
 .skip-btn:disabled{opacity:.3;cursor:default;}
+.row-actions{display:flex;flex-direction:column;gap:2px;flex-shrink:0;align-items:stretch;}
+.row-actions .skip-btn{min-width:88px;}
 .empty-row{font-size:13.5px;color:var(--muted);padding:10px 8px;}
 
 .history{display:flex;flex-direction:column;gap:9px;}
@@ -648,13 +650,28 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
       wrap.appendChild(label);
     }
 
+    var showNowBtn = state.viewedId>todayId && !checked && !skipped;
+    var actions = showNowBtn ? document.createElement("div") : wrap;
+    if(showNowBtn) actions.className = "row-actions";
+
+    if(showNowBtn){
+      var nowBtn = document.createElement("button");
+      nowBtn.type = "button";
+      nowBtn.className = "skip-btn";
+      nowBtn.textContent = "Nu al gedaan";
+      nowBtn.disabled = state.readOnly;
+      nowBtn.addEventListener("click", function(){ logForToday(step.id); });
+      actions.appendChild(nowBtn);
+    }
+
     var skipBtn = document.createElement("button");
     skipBtn.type = "button";
     skipBtn.className = "skip-btn"+(skipped?" active":"");
     skipBtn.textContent = skipped ? "Herstel" : "Sla over";
     skipBtn.disabled = state.readOnly || checked;
     skipBtn.addEventListener("click", function(){ toggleSkip(step.id); });
-    wrap.appendChild(skipBtn);
+    actions.appendChild(skipBtn);
+    if(showNowBtn) wrap.appendChild(actions);
     return wrap;
   }
 
@@ -994,16 +1011,36 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
     });
   }
 
-  function saveViewedLog(done, skipped){
+  function saveLogForDate(id, done, skipped){
+    // stepsForDay() reads state.viewedId, so borrow it briefly to compute
+    // the right total for the target date even when that is not the day
+    // on screen (used by "Nu al gedaan" while browsing a future day).
+    var savedViewedId = state.viewedId;
+    state.viewedId = id;
     var applicable = stepsForDay();
+    state.viewedId = savedViewedId;
     var skippedApplicable = applicable.filter(function(s){ return !!skipped[s.id]; }).length;
     var total = applicable.length - skippedApplicable;
     var body = { done: done, skipped: skipped, total: total };
-    var id = state.viewedId;
     state.logsByDate[id] = Object.assign({date:id}, body);
     renderAll();
     api("/api/logs/"+id, { method:"PUT", headers:{"Content-Type":"application/json"}, body: JSON.stringify(body) })
       .catch(function(){});
+  }
+  function saveViewedLog(done, skipped){
+    saveLogForDate(state.viewedId, done, skipped);
+  }
+  function logForToday(key){
+    if(state.readOnly) return;
+    var log = state.logsByDate[todayId] || {date:todayId, done:{}, skipped:{}, total:0};
+    var newDone = Object.assign({}, log.done);
+    newDone[key] = true;
+    var step = findStep(key);
+    if(step && step.scheduleType==="linked"){
+      state.steps.filter(function(s){ return s.scheduleType==="linked" && s.linkedTo===step.linkedTo && s.id!==key; })
+        .forEach(function(sib){ newDone[sib.id] = false; });
+    }
+    saveLogForDate(todayId, newDone, log.skipped||{});
   }
   function toggleDone(key){
     if(state.readOnly) return;
