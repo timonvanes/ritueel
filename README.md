@@ -28,7 +28,7 @@ Setup:
    - `VAPID_PRIVATE_KEY`
    - `VAPID_SUBJECT` — bv. `mailto:jouw@email.nl`
 3. Redeploy.
-4. De GitHub Action in `.github/workflows/push-reminders.yml` roept elke 10 minuten `/api/push/tick` aan; die route bepaalt zelf of het 7:00 of 22:00 lokale tijd is en verstuurt dan (maar niet twee keer per dag per moment). Er is geen Vercel Cron nodig — dit werkt ook op het gratis Hobby-plan.
+4. `vercel.json` bevat twee Cron Jobs (1x per dag, toegestaan op het gratis Hobby-plan) die `/api/push/tick` aanroepen; die route bepaalt zelf of het echt rond 7:00 of 22:00 lokale tijd is (met marge voor zomer-/wintertijd) en verstuurt dan, maar nooit twee keer per dag per moment. De GitHub Action in `.github/workflows/push-reminders.yml` roept dezelfde route vaker aan als extra backup.
 5. Op je telefoon: zet de app eerst op het beginscherm (vereist voor push op iOS), open hem van daaruit, en tik in **Instellingen** op "Meldingen aanzetten".
 
 ## Lokaal draaien
@@ -40,10 +40,14 @@ npm run dev
 
 Zonder Vercel KV-omgevingsvariabelen werkt de UI, maar falen de opslag-calls (je ziet dan de "kon geen verbinding maken"-banner). Koppel `vercel env pull` om lokaal met dezelfde KV-database te werken.
 
+## Geschiedenis exporteren
+
+**Instellingen → Exporteer naar CSV** downloadt de volledige historie (elke dag ooit gelogd: wat is afgevinkt, overgeslagen, en de dagnotitie) als CSV-bestand, te openen in Excel/Google Sheets.
+
 ## Databasemodel
 
-- `steps` — array met alle routine-stappen (naam, categorie-id, moment ochtend/avond, dagen van de week, notitie). Wordt bij de eerste aanvraag automatisch gevuld met de huidige routine.
+- `steps` — array met alle routine-stappen (naam, categorie-id, moment — array met `ochtend` en/of `avond` — dagen/herhaling, notitie). Wordt bij de eerste aanvraag automatisch gevuld met de huidige routine.
 - `categories` — array met categorieën (`{id, name}`), begint met Huid en Haar; voeg je eigen categorie toe via het "+ Nieuw"-knopje bij een product.
-- `log:<YYYY-MM-DD>` — per dag welke stappen zijn afgevinkt (`done`), welke zijn overgeslagen (`skipped`) en het totaal aantal toepasselijke stappen die dag.
+- `log:<YYYY-MM-DD>` — per dag welke stappen zijn afgevinkt (`done`), welke zijn overgeslagen (`skipped`), het totaal aantal toepasselijke stappen die dag, en een vrije dagnotitie (`note`).
 - `push_subs` — geregistreerde push-abonnementen per toestel.
 - `push_sent:<slot>:<YYYY-MM-DD>` — houdt bij of de melding voor "morning"/"evening" die dag al is verstuurd.

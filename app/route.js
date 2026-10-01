@@ -170,20 +170,20 @@ nav.tabs button:focus-visible{outline:2px solid var(--accent);outline-offset:2px
 .hist-fill{position:absolute;left:0;bottom:0;width:100%;background:var(--done);}
 .hist-day .dlabel{font-family:"Work Sans",sans-serif;font-size:10.5px;color:var(--muted);}
 
-button.btn{
+.btn{
   font-family:"Manrope",sans-serif;font-weight:700;font-size:14.5px;
   border-radius:14px;border:1.5px solid var(--border);background:var(--surface);color:var(--ink);
-  padding:13px 18px;cursor:pointer;min-height:48px;
+  padding:13px 18px;cursor:pointer;min-height:48px;box-sizing:border-box;
 }
-button.btn.primary{
+.btn.primary{
   background:var(--accent);border-color:var(--accent);color:var(--accent-ink);
   border-radius:999px;box-shadow:0 1px 2px rgba(20,23,26,.08);
 }
-button.btn.block{width:100%;}
-button.btn.ghost{background:none;border-color:transparent;color:var(--muted);padding:8px 10px;font-size:13px;min-height:40px;}
-button.btn.danger-step{color:var(--danger);}
-button.btn:active{transform:scale(.98);}
-button.btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+.btn.block{width:100%;}
+.btn.ghost{background:none;border-color:transparent;color:var(--muted);padding:8px 10px;font-size:13px;min-height:40px;}
+.btn.danger-step{color:var(--danger);}
+.btn:active{transform:scale(.98);}
+.btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
 
 .products-head{display:flex;flex-direction:column;gap:10px;}
 
@@ -200,6 +200,12 @@ form.pform input[type="text"],form.pform textarea{
   width:100%;resize:vertical;
 }
 form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px solid var(--accent);outline-offset:1px;}
+#dayNote{
+  font-family:"Work Sans",sans-serif;font-size:15px;color:var(--ink);
+  background:var(--surface-2);border:1.5px solid var(--border);border-radius:10px;padding:12px 13px;
+  width:100%;resize:vertical;
+}
+#dayNote:focus-visible{outline:2px solid var(--accent);outline-offset:1px;}
 .seg{display:flex;gap:7px;flex-wrap:wrap;}
 .seg button{
   font-family:"Manrope",sans-serif;font-size:13.5px;font-weight:700;
@@ -290,6 +296,12 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
       <div class="label-caps">Laatste 7 dagen</div>
       <div class="hist-strip" id="histStrip"></div>
     </div>
+
+    <div class="card" style="margin-top:16px;">
+      <div class="card-head"><h2 id="noteLabel">Notitie</h2></div>
+      <textarea id="dayNote" rows="3" placeholder="Wat ging goed, wat niet? (wordt per dag bewaard)"></textarea>
+      <div class="row-notes" id="noteStatus"></div>
+    </div>
   </section>
 
   <section id="tab-producten" hidden>
@@ -369,6 +381,12 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
       <button class="btn" id="btnNotifTest" style="margin-top:10px;">Stuur testmelding</button>
       <div class="row-notes" id="notifTestStatus"></div>
     </div>
+
+    <div class="card" style="margin-top:16px;">
+      <div class="card-head"><h2>Geschiedenis</h2></div>
+      <div class="row-notes">Download alles wat je ooit hebt afgevinkt, overgeslagen en genoteerd als CSV-bestand (te openen in Excel/Google Sheets).</div>
+      <a class="btn primary" href="/api/export" style="margin-top:6px;display:inline-flex;align-items:center;justify-content:center;text-decoration:none;">Exporteer naar CSV</a>
+    </div>
   </section>
 </div>
 
@@ -407,10 +425,14 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
   function viewedWeekday(){
     return parseId(state.viewedId).getDay();
   }
-  // Steps stored with the old "flex" moment (before this card existed)
-  // fall back to Ochtend so they stay visible instead of disappearing.
-  function momentOf(step){
-    return step.moment==="avond" ? "avond" : "ochtend";
+  // Steps can now live in Ochtend, Avond, or both. Older data stored
+  // the moment field as a single string (including the retired "flex"
+  // value) — normalize that to an array so it keeps showing up (as Ochtend).
+  function momentsOf(step){
+    var m = step.moment;
+    var arr = Array.isArray(m) ? m : [m];
+    arr = arr.filter(function(x){ return x==="ochtend" || x==="avond"; });
+    return arr.length ? arr : ["ochtend"];
   }
 
   var CATEGORY_COLORS = ["#0E7A57","#64748B","#B45309","#6D28D9","#0369A1","#BE185D"];
@@ -708,7 +730,7 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
     mount.innerHTML = "";
     var log = currentLog();
 
-    var momentSteps = state.steps.filter(function(s){ return momentOf(s)===moment; });
+    var momentSteps = state.steps.filter(function(s){ return momentsOf(s).indexOf(moment)!==-1; });
     // A linked step only counts as "the" due item when it's the one
     // suggested for this occurrence — its siblings stay out of the way
     // (reachable via "niet aan de beurt") instead of all showing at once.
@@ -790,6 +812,7 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
   document.getElementById("dayPrev").addEventListener("click", function(){ goToDate(addDaysId(state.viewedId,-1)); });
   document.getElementById("dayNext").addEventListener("click", function(){ goToDate(addDaysId(state.viewedId,1)); });
   document.getElementById("dayLabel").addEventListener("click", function(){ goToDate(todayId); });
+  document.getElementById("dayNote").addEventListener("blur", function(){ saveNote(this.value); });
 
   function renderProducts(){
     var mount = document.getElementById("productList");
@@ -822,7 +845,8 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
         tags.className = "ptags";
         var t1 = document.createElement("span");
         t1.className = "tag";
-        t1.textContent = momentOf(s)==="ochtend"?"Ochtend":"Avond";
+        var ms = momentsOf(s);
+        t1.textContent = ms.length===2 ? "Ochtend + Avond" : (ms[0]==="avond"?"Avond":"Ochtend");
         var t2 = document.createElement("span");
         t2.className = "tag";
         t2.textContent = scheduleLabel(s);
@@ -872,6 +896,16 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
     }
   }
 
+  var noteRenderedFor = null;
+  function renderNote(){
+    var field = document.getElementById("dayNote");
+    field.disabled = state.readOnly;
+    if(document.activeElement===field) return; // don't clobber active typing
+    if(noteRenderedFor===state.viewedId) return;
+    field.value = currentLog().note || "";
+    noteRenderedFor = state.viewedId;
+  }
+
   function renderAll(){
     renderRoutine("ochtend","rows-ochtend","count-ochtend");
     renderRoutine("avond","rows-avond","count-avond");
@@ -880,6 +914,7 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
     renderProducts();
     highlightActiveTime();
     updateDayNav();
+    renderNote();
   }
 
   var TAB_IDS = ["vandaag","producten","instellingen"];
@@ -895,7 +930,7 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
 
   var pform = document.getElementById("pform");
   var editingId = null;
-  var formCat = "huid", formTime = "ochtend", formDays = [];
+  var formCat = "huid", formMoments = ["ochtend"], formDays = [];
   var formScheduleType = "weekly", formLinkedTo = null;
 
   function setSeg(container, value){
@@ -937,8 +972,19 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
       })
       .catch(function(){ alert("Kon categorie niet toevoegen."); });
   }
+  function setMomentSeg(){
+    document.getElementById("seg-time").querySelectorAll("button").forEach(function(b){
+      b.classList.toggle("on", formMoments.indexOf(b.dataset.val)!==-1);
+    });
+  }
   document.getElementById("seg-time").querySelectorAll("button").forEach(function(b){
-    b.addEventListener("click", function(){ formTime=b.dataset.val; setSeg(document.getElementById("seg-time"),formTime); });
+    b.addEventListener("click", function(){
+      var v = b.dataset.val;
+      var idx = formMoments.indexOf(v);
+      if(idx===-1) formMoments.push(v);
+      else if(formMoments.length>1) formMoments.splice(idx,1); // at least one must stay selected
+      setMomentSeg();
+    });
   });
   document.getElementById("seg-days").querySelectorAll("button").forEach(function(b){
     b.addEventListener("click", function(){
@@ -996,14 +1042,14 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
     document.getElementById("f-name").value = step ? step.name : "";
     document.getElementById("f-notes").value = step ? (step.notes||"") : "";
     formCat = step ? step.category : (state.categories[0] ? state.categories[0].id : "huid");
-    formTime = step ? momentOf(step) : "ochtend";
+    formMoments = step ? momentsOf(step).slice() : ["ochtend"];
     formScheduleType = step ? (step.scheduleType || "weekly") : "weekly";
     formDays = step && step.days ? step.days.slice() : [1,2,3,4,5,6,0];
     document.getElementById("f-every").value = step && step.everyDays ? step.everyDays : "2";
     document.getElementById("f-occurrence").value = step && step.occurrenceEvery ? step.occurrenceEvery : "";
     formLinkedTo = step ? (step.linkedTo || null) : null;
     renderCategorySeg();
-    setSeg(document.getElementById("seg-time"), formTime);
+    setMomentSeg();
     setDaySeg();
     setScheduleVisibility();
     if(formScheduleType==="linked") renderLinkedSeg();
@@ -1021,7 +1067,7 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
     var name = document.getElementById("f-name").value.trim();
     if(!name) return;
     var data = {
-      name: name, category: formCat, moment: formTime,
+      name: name, category: formCat, moment: formMoments.slice(),
       scheduleType: formScheduleType,
       notes: document.getElementById("f-notes").value.trim()
     };
@@ -1050,7 +1096,7 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
     });
   }
 
-  function saveLogForDate(id, done, skipped){
+  function saveLogForDate(id, done, skipped, note){
     // stepsForDay() reads state.viewedId, so borrow it briefly to compute
     // the right total for the target date even when that is not the day
     // on screen (used by "Nu al gedaan" while browsing a future day).
@@ -1060,7 +1106,11 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
     state.viewedId = savedViewedId;
     var skippedApplicable = applicable.filter(function(s){ return !!skipped[s.id]; }).length;
     var total = applicable.length - skippedApplicable;
-    var body = { done: done, skipped: skipped, total: total };
+    var existing = state.logsByDate[id];
+    var body = {
+      done: done, skipped: skipped, total: total,
+      note: note!==undefined ? note : (existing ? existing.note||"" : "")
+    };
     state.logsByDate[id] = Object.assign({date:id}, body);
     renderAll();
     api("/api/logs/"+id, { method:"PUT", headers:{"Content-Type":"application/json"}, body: JSON.stringify(body) })
@@ -1068,6 +1118,13 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
   }
   function saveViewedLog(done, skipped){
     saveLogForDate(state.viewedId, done, skipped);
+  }
+  function saveNote(text){
+    if(state.readOnly) return;
+    var log = currentLog();
+    saveLogForDate(state.viewedId, log.done, log.skipped||{}, text);
+    var status = document.getElementById("noteStatus");
+    if(status){ status.textContent = "Opgeslagen"; setTimeout(function(){ if(status.textContent==="Opgeslagen") status.textContent=""; }, 1500); }
   }
   function logForToday(key){
     if(state.readOnly) return;
