@@ -221,7 +221,8 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
 .ratio-slider-row{display:flex;align-items:center;gap:10px;}
 .ratio-slider-row .rs-name{flex:1;font-size:13px;color:var(--ink);min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .ratio-slider-row input[type="range"]{flex:2;accent-color:var(--accent);min-width:0;}
-.ratio-slider-row .rs-pct{width:42px;text-align:right;font-family:"Manrope",sans-serif;font-weight:700;font-size:13.5px;flex-shrink:0;}
+.ratio-slider-row .rs-pct{width:76px;text-align:right;font-family:"Manrope",sans-serif;font-weight:700;font-size:13.5px;flex-shrink:0;}
+form.pform input.rs-parts{width:52px!important;text-align:center;flex:0 0 auto;}
 .ratio-hint{font-size:12.5px;color:var(--muted);}
 .form-actions{display:flex;gap:10px;}
 .form-actions .btn{flex:1;}
@@ -370,8 +371,12 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
       <div class="frow" id="schedLinked" hidden>
         <label>Gekoppeld aan</label>
         <div class="seg" id="seg-linked"></div>
-        <label style="margin-top:8px;">Verdeling (schuift automatisch naar 100%)</label>
-        <div id="ratio-sliders" class="ratio-sliders"></div>
+        <label style="margin-top:8px;">Verdeling</label>
+        <div class="seg" id="seg-ratio-mode">
+          <button type="button" data-val="pct">Percentage</button>
+          <button type="button" data-val="parts">Delen (bv. 1 op de 3)</button>
+        </div>
+        <div id="ratio-sliders" class="ratio-sliders" style="margin-top:4px;"></div>
       </div>
       <div class="frow">
         <label>Conflicteert met (niet combineren op dezelfde dag)</label>
@@ -1227,18 +1232,23 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
   }
 
   // The "Verdeling" sliders: one row per product already linked to the
-  // chosen target, plus the product being edited/created, all sharing a
-  // single pool of 100%. Dragging one row's slider rebalances the others
-  // proportionally so the total always stays at 100 — no separate "do
-  // these add up" check needed, it simply can't drift out of sync.
+  // chosen target, plus the product being edited/created. Two input modes
+  // for the same underlying fraction: "pct" is a slider per product that
+  // rebalances the others so the group always sums to exactly 100 (no
+  // separate "do these add up" check needed); "parts" is a plain number
+  // per product (e.g. 1 and 2) with the group's total as the shared
+  // denominator — 1 and 2 means 1/3 and 2/3, same as "1 op de 3 keer".
   var formRatioGroup = [];
-  var ratioSliderEls = [];
+  var ratioRowEls = [];
+  var formRatioMode = "pct";
   function ratioPctOf(s){
     if(s.ratioN>0 && s.ratioOf>0) return Math.round((s.ratioN/s.ratioOf)*100);
     if(s.occurrenceEvery>1) return Math.round((1/s.occurrenceEvery)*100);
     return null;
   }
   function selfRatioId(){ return editingId || "__self__"; }
+  function ratioGroupTotal(){ return formRatioGroup.reduce(function(s,g){ return s+g.pct; }, 0); }
+  function ratioOfForGroup(){ return formRatioMode==="parts" ? (ratioGroupTotal()||1) : 100; }
   function initRatioGroup(){
     var siblings = state.steps.filter(function(s){ return s.scheduleType==="linked" && s.linkedTo===formLinkedTo && s.id!==editingId; });
     var group = siblings.map(function(s){ return { id:s.id, name:s.name, pct: ratioPctOf(s) }; });
@@ -1253,12 +1263,35 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
       unset.forEach(function(g,i){ g.pct = (i===unset.length-1) ? (remainder-share*(unset.length-1)) : share; });
     }
     formRatioGroup = group;
+    formRatioMode = "pct";
+    setSeg(document.getElementById("seg-ratio-mode"), formRatioMode);
+    renderRatioSliders();
+  }
+  document.getElementById("seg-ratio-mode").querySelectorAll("button").forEach(function(b){
+    b.addEventListener("click", function(){ setRatioMode(b.dataset.val); });
+  });
+  function setRatioMode(mode){
+    if(mode===formRatioMode || formRatioGroup.length<2) { formRatioMode = mode; setSeg(document.getElementById("seg-ratio-mode"), mode); renderRatioSliders(); return; }
+    if(mode==="pct"){
+      // Rescale whatever "parts" numbers are currently entered to sum to 100.
+      var total = ratioGroupTotal() || 1;
+      var running = 0;
+      formRatioGroup.forEach(function(g,i){
+        if(i===formRatioGroup.length-1){ g.pct = 100-running; }
+        else { g.pct = Math.round(g.pct/total*100); running += g.pct; }
+      });
+    }
+    // Switching to "parts" needs no transform — the current numbers (e.g.
+    // 67/33) are already valid parts (total currently 100), just no longer
+    // forced to stay there as you keep typing.
+    formRatioMode = mode;
+    setSeg(document.getElementById("seg-ratio-mode"), mode);
     renderRatioSliders();
   }
   function renderRatioSliders(){
     var container = document.getElementById("ratio-sliders");
     container.innerHTML = "";
-    ratioSliderEls = [];
+    ratioRowEls = [];
     if(formRatioGroup.length<2){
       var hint = document.createElement("div");
       hint.className = "ratio-hint";
@@ -1272,31 +1305,50 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
       var name = document.createElement("span");
       name.className = "rs-name";
       name.textContent = g.id===selfRatioId() ? (document.getElementById("f-name").value.trim() || "Dit product") : g.name;
-      var slider = document.createElement("input");
-      slider.type = "range";
-      slider.min = "0"; slider.max = "100"; slider.step = "1";
-      slider.value = g.pct;
+      var control;
+      if(formRatioMode==="parts"){
+        control = document.createElement("input");
+        control.type = "text"; control.inputMode = "numeric"; control.className = "rs-parts";
+        control.value = g.pct;
+        control.addEventListener("input", function(){
+          var n = parseInt(control.value, 10);
+          formRatioGroup[idx].pct = (Number.isFinite(n) && n>=0) ? n : 0;
+          updateRatioLabels();
+        });
+        control.addEventListener("change", persistSiblingRatios);
+      } else {
+        control = document.createElement("input");
+        control.type = "range"; control.min = "0"; control.max = "100"; control.step = "1";
+        control.value = g.pct;
+        control.addEventListener("input", function(){
+          rebalanceRatioGroup(idx, parseInt(control.value,10));
+          updateRatioLabels();
+        });
+        control.addEventListener("change", persistSiblingRatios);
+      }
       var pctLabel = document.createElement("span");
       pctLabel.className = "rs-pct";
-      pctLabel.textContent = g.pct+"%";
-      slider.addEventListener("input", function(){
-        rebalanceRatioGroup(idx, parseInt(slider.value,10));
-        updateRatioSliderDisplay();
-      });
-      slider.addEventListener("change", persistSiblingRatios);
       row.appendChild(name);
-      row.appendChild(slider);
+      row.appendChild(control);
       row.appendChild(pctLabel);
       container.appendChild(row);
-      ratioSliderEls.push({ slider: slider, pctLabel: pctLabel });
+      ratioRowEls.push({ control: control, pctLabel: pctLabel });
     });
+    updateRatioLabels();
   }
-  function updateRatioSliderDisplay(){
+  function updateRatioLabels(){
+    var total = ratioGroupTotal() || 1;
     formRatioGroup.forEach(function(g, idx){
-      var els = ratioSliderEls[idx];
+      var els = ratioRowEls[idx];
       if(!els) return;
-      if(document.activeElement!==els.slider) els.slider.value = g.pct;
-      els.pctLabel.textContent = g.pct+"%";
+      if(document.activeElement!==els.control){
+        els.control.value = g.pct;
+      }
+      if(formRatioMode==="parts"){
+        els.pctLabel.textContent = Math.round(g.pct/total*100)+"%";
+      } else {
+        els.pctLabel.textContent = g.pct+"%";
+      }
     });
   }
   function rebalanceRatioGroup(idx, newVal){
@@ -1320,9 +1372,10 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
   }
   function persistSiblingRatios(){
     var selfId = selfRatioId();
+    var ratioOf = ratioOfForGroup();
     formRatioGroup.forEach(function(g){
       if(g.id===selfId) return;
-      updateStepApi(g.id, { ratioN: g.pct, ratioOf: 100 });
+      updateStepApi(g.id, { ratioN: g.pct, ratioOf: ratioOf });
     });
   }
 
@@ -1403,7 +1456,7 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
       if(!formLinkedTo) return;
       data.linkedTo = formLinkedTo;
       var selfEntry = formRatioGroup.filter(function(g){ return g.id===selfRatioId(); })[0];
-      if(selfEntry && formRatioGroup.length>1){ data.ratioN = selfEntry.pct; data.ratioOf = 100; }
+      if(selfEntry && formRatioGroup.length>1){ data.ratioN = selfEntry.pct; data.ratioOf = ratioOfForGroup(); }
       data.days = ALL_DAYS.slice();
     }
     data.conflictsWith = formConflicts.slice();

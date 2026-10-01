@@ -56,7 +56,12 @@ Bij een product kun je onder "Conflicteert met" aangeven welke andere producten 
 
 ## Verdeling tussen gekoppelde producten
 
-Bij "Gekoppeld aan ander product" (bv. conditioner/masker na shampoo) stel je de verdeling in met schuifjes: één schuifje per product dat aan hetzelfde doel gekoppeld is, inclusief het product dat je op dat moment bewerkt. Schuif je conditioner naar 67%, dan schuift masker automatisch mee naar 33% — samen altijd precies 100%, dus daar hoef je niet zelf op te letten. Bij 3 of meer gekoppelde producten schuiven de andere twee proportioneel mee. De verdeling wordt, net als bij conflicten, elke keer vers berekend uit de echte geschiedenis — kies je een keer iets anders dan voorgesteld, dan schuift de rest zich automatisch bij.
+Bij "Gekoppeld aan ander product" (bv. conditioner/masker na shampoo) stel je de verdeling in op twee manieren, te kiezen boven de verdeling:
+
+- **Percentage** — een schuifje per product dat aan hetzelfde doel gekoppeld is, inclusief het product dat je op dat moment bewerkt. Schuif je conditioner naar 67%, dan schuift masker automatisch mee naar 33% — samen altijd precies 100%. Bij 3 of meer gekoppelde producten schuiven de andere proportioneel mee.
+- **Delen** — typ per product een heel getal (bv. masker = 1, conditioner = 2); het totaal (hier 3) is automatisch de noemer, dus dat is 1/3 en 2/3. Handig als je liever in "1 op de zoveel keer" denkt dan in procenten.
+
+Beide manieren leveren dezelfde onderliggende breuk op — percentages werken ook voor verhoudingen die geen mooie breuk zijn (bv. 25%: dat is gewoon 1 op de 4 keer, geen probleem). De verdeling wordt, net als bij conflicten, elke keer vers berekend uit de echte geschiedenis — kies je een keer iets anders dan voorgesteld, dan schuift de rest zich automatisch bij.
 
 ## Databasemodel
 
