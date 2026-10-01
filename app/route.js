@@ -344,6 +344,8 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
       <div class="frow" id="schedLinked" hidden>
         <label>Gekoppeld aan</label>
         <div class="seg" id="seg-linked"></div>
+        <label style="margin-top:8px;" for="f-occurrence">Hoe vaak (optioneel)</label>
+        <input type="text" inputmode="numeric" id="f-occurrence" placeholder="bv. 3 = 1 op de 3 keer. Leeg = wisselt standaard af">
       </div>
       <div class="frow">
         <label for="f-notes">Notitie (optioneel)</label>
@@ -480,12 +482,7 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
     return state.steps.filter(function(s){ return isStepDue(s) || stepLoggedOnViewed(s); });
   }
 
-  // Among steps linked to the same target, suggest whichever was used
-  // least recently (never-used siblings first) — generalizes the old
-  // conditioner/masker alternation to any number of linked siblings.
-  function suggestedLinkedSibling(targetId){
-    var siblings = state.steps.filter(function(s){ return s.scheduleType==="linked" && s.linkedTo===targetId; });
-    if(siblings.length===0) return null;
+  function pickLeastRecentlyUsed(siblings){
     var withDates = siblings.map(function(s){ return { id:s.id, last: findLastDone(s.id) }; });
     withDates.sort(function(a,b){
       if(!a.last && !b.last) return 0;
@@ -494,6 +491,36 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
       return a.last<b.last ? -1 : (a.last>b.last ? 1 : 0);
     });
     return withDates[0].id;
+  }
+
+  // How many times the target step was already completed before the
+  // viewed day — recomputed fresh from real history every time, so
+  // picking a different sibling than suggested on any given wash just
+  // naturally shifts which future wash lands the "every Nth" slot,
+  // instead of needing a separate counter that could drift out of sync.
+  function occurrenceCountBefore(stepId){
+    var count = 0;
+    Object.keys(state.logsByDate).forEach(function(id){
+      if(id>=state.viewedId) return;
+      var log = state.logsByDate[id];
+      if(log && log.done && log.done[stepId] && !(log.skipped && log.skipped[stepId])) count++;
+    });
+    return count;
+  }
+
+  // Among steps linked to the same target: siblings with an "occurrenceEvery"
+  // (e.g. masker = 3 -> every 3rd wash) take their slot when the upcoming
+  // wash number matches; everything else falls to whichever plain sibling
+  // (no occurrenceEvery set) was used least recently — the original 50/50
+  // alternation when nobody has set a ratio.
+  function suggestedLinkedSibling(targetId){
+    var siblings = state.steps.filter(function(s){ return s.scheduleType==="linked" && s.linkedTo===targetId; });
+    if(siblings.length===0) return null;
+    var occurrence = occurrenceCountBefore(targetId) + 1;
+    var special = siblings.filter(function(s){ return s.occurrenceEvery>1 && occurrence % s.occurrenceEvery===0; });
+    if(special.length>0) return pickLeastRecentlyUsed(special);
+    var defaults = siblings.filter(function(s){ return !(s.occurrenceEvery>1); });
+    return pickLeastRecentlyUsed(defaults.length>0 ? defaults : siblings);
   }
 
   function intervalHintText(step){
@@ -574,7 +601,8 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
     if(type==="interval") return (s.everyDays||1)===1 ? "Elke dag" : "Elke "+s.everyDays+" dagen";
     if(type==="linked"){
       var t = findStep(s.linkedTo);
-      return "Gekoppeld aan "+(t?t.name:"?");
+      var base = "Gekoppeld aan "+(t?t.name:"?");
+      return s.occurrenceEvery>1 ? base+" · 1 op de "+s.occurrenceEvery+" keer" : base;
     }
     return daysLabel(s.days);
   }
@@ -681,9 +709,17 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
     var log = currentLog();
 
     var momentSteps = state.steps.filter(function(s){ return momentOf(s)===moment; });
-    var dueItems = momentSteps.filter(function(s){ return isStepDue(s) || stepLoggedOnViewed(s); });
+    // A linked step only counts as "the" due item when it's the one
+    // suggested for this occurrence — its siblings stay out of the way
+    // (reachable via "niet aan de beurt") instead of all showing at once.
+    function isActiveDue(s){
+      if(!isStepDue(s)) return false;
+      if(s.scheduleType==="linked") return suggestedLinkedSibling(s.linkedTo)===s.id;
+      return true;
+    }
+    var dueItems = momentSteps.filter(function(s){ return isActiveDue(s) || stepLoggedOnViewed(s); });
     var notDueFlexible = momentSteps.filter(function(s){
-      return !isStepDue(s) && !stepLoggedOnViewed(s) && (s.scheduleType==="interval" || s.scheduleType==="linked");
+      return !isActiveDue(s) && !stepLoggedOnViewed(s) && (s.scheduleType==="interval" || s.scheduleType==="linked");
     });
 
     var doneN = 0, totalN = 0;
@@ -964,6 +1000,7 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
     formScheduleType = step ? (step.scheduleType || "weekly") : "weekly";
     formDays = step && step.days ? step.days.slice() : [1,2,3,4,5,6,0];
     document.getElementById("f-every").value = step && step.everyDays ? step.everyDays : "2";
+    document.getElementById("f-occurrence").value = step && step.occurrenceEvery ? step.occurrenceEvery : "";
     formLinkedTo = step ? (step.linkedTo || null) : null;
     renderCategorySeg();
     setSeg(document.getElementById("seg-time"), formTime);
@@ -998,6 +1035,8 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
     } else if(formScheduleType==="linked"){
       if(!formLinkedTo) return;
       data.linkedTo = formLinkedTo;
+      var occ = parseInt(document.getElementById("f-occurrence").value, 10);
+      data.occurrenceEvery = (occ && occ>1) ? occ : null;
       data.days = ALL_DAYS.slice();
     }
     if(editingId){ updateStepApi(editingId, data); } else { createStepApi(data); }
