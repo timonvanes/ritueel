@@ -301,6 +301,14 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
         </div>
       </div>
       <div class="frow">
+        <label>Herhaling</label>
+        <div class="seg" id="seg-schedtype">
+          <button type="button" data-val="weekly">Vaste dagen</button>
+          <button type="button" data-val="interval">Elke zoveel dagen</button>
+          <button type="button" data-val="linked">Gekoppeld aan ander product</button>
+        </div>
+      </div>
+      <div class="frow" id="schedWeekly">
         <label>Dagen</label>
         <div class="seg-row">
           <div class="seg days" id="seg-days">
@@ -314,6 +322,14 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
           </div>
           <button type="button" class="btn allday" id="btnAllDays">Elke dag</button>
         </div>
+      </div>
+      <div class="frow" id="schedInterval" hidden>
+        <label for="f-every">Elke hoeveel dagen</label>
+        <input type="text" inputmode="numeric" id="f-every" placeholder="bv. 2">
+      </div>
+      <div class="frow" id="schedLinked" hidden>
+        <label>Gekoppeld aan</label>
+        <div class="seg" id="seg-linked"></div>
       </div>
       <div class="frow">
         <label for="f-notes">Notitie (optioneel)</label>
@@ -374,9 +390,6 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
     return CATEGORY_COLORS[idx % CATEGORY_COLORS.length];
   }
 
-  function stepsForDay(weekday){
-    return state.steps.filter(function(s){ return (s.days||[]).indexOf(weekday)!==-1; });
-  }
   function parseId(id){
     var p = id.split("-");
     return new Date(parseInt(p[0],10), parseInt(p[1],10)-1, parseInt(p[2],10));
@@ -390,36 +403,78 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
     return out;
   }
 
-  var WASH_INTERVAL_DAYS = 2;
-
-  function computeWashSuggestion(){
-    var bestDate = null, bestVariant = null;
+  function findLastDone(stepId){
+    var best = null;
     Object.keys(state.logsByDate).forEach(function(id){
       if(id>todayId) return;
       var log = state.logsByDate[id];
-      if(!log || !log.done || !log.done.shampoo) return;
-      if(log.skipped && log.skipped.shampoo) return;
-      if(!bestDate || id>bestDate){
-        bestDate = id;
-        if(log.done.conditioner) bestVariant = "conditioner";
-        else if(log.done.keratinemasker) bestVariant = "masker";
-        else bestVariant = null;
+      if(log && log.done && log.done[stepId] && !(log.skipped && log.skipped[stepId])){
+        if(!best || id>best) best = id;
       }
     });
-    var daysSince = bestDate===null ? null : daysBetweenIds(bestDate, todayId);
-    var nextInDays = daysSince===null ? 0 : Math.max(0, WASH_INTERVAL_DAYS - daysSince);
-    return {
-      daysSince: daysSince,
-      nextInDays: nextInDays,
-      variant: bestVariant==="conditioner" ? "masker" : "conditioner"
-    };
+    return best;
   }
-  function washHintText(s){
-    if(!s || s.daysSince===null) return "Nog geen wasbeurt gelogd — begin wanneer je wilt";
-    if(s.daysSince<=0) return "Vandaag al gewassen";
-    var since = s.daysSince===1 ? "Gisteren gewassen" : s.daysSince+" dagen geleden gewassen";
-    if(s.nextInDays<=0) return since+" · aanbevolen: was gerust vandaag";
-    var next = s.nextInDays===1 ? "volgende wasbeurt over 1 dag" : "volgende wasbeurt over "+s.nextInDays+" dagen";
+
+  function findStep(id){
+    return state.steps.find(function(s){ return s.id===id; });
+  }
+
+  // A step is "due" today depending on its schedule type:
+  // - weekly: fixed days of the week (the original model)
+  // - interval: every N days since this step was itself last logged,
+  //   so an early or late check-in simply restarts the count from today
+  // - linked: due whenever the step it's linked to is due (used for
+  //   "conditioner OR mask, whichever goes with today's wash")
+  function isStepDue(step, seen){
+    var type = step.scheduleType || "weekly";
+    if(type==="interval"){
+      var last = findLastDone(step.id);
+      if(!last) return true;
+      return daysBetweenIds(last, todayId) >= (step.everyDays||1);
+    }
+    if(type==="linked"){
+      seen = seen || {};
+      if(seen[step.id]) return false;
+      seen[step.id] = true;
+      var target = findStep(step.linkedTo);
+      return target ? isStepDue(target, seen) : true;
+    }
+    return (step.days||[]).indexOf(todayWeekday)!==-1;
+  }
+
+  function stepsForDay(){
+    // Applicable-today set used for the daily total/streak count. Includes
+    // anything already logged today even if a fresh isStepDue() would now
+    // say otherwise (checking an interval step moves its own due date, so
+    // without this it would vanish from the count the instant it's ticked).
+    return state.steps.filter(function(s){ return isStepDue(s) || stepLoggedToday(s); });
+  }
+
+  // Among steps linked to the same target, suggest whichever was used
+  // least recently (never-used siblings first) — generalizes the old
+  // conditioner/masker alternation to any number of linked siblings.
+  function suggestedLinkedSibling(targetId){
+    var siblings = state.steps.filter(function(s){ return s.scheduleType==="linked" && s.linkedTo===targetId; });
+    if(siblings.length===0) return null;
+    var withDates = siblings.map(function(s){ return { id:s.id, last: findLastDone(s.id) }; });
+    withDates.sort(function(a,b){
+      if(!a.last && !b.last) return 0;
+      if(!a.last) return -1;
+      if(!b.last) return 1;
+      return a.last<b.last ? -1 : (a.last>b.last ? 1 : 0);
+    });
+    return withDates[0].id;
+  }
+
+  function intervalHintText(step){
+    var last = findLastDone(step.id);
+    if(!last) return "Nog niet eerder gelogd — begin wanneer je wilt";
+    var daysSince = daysBetweenIds(last, todayId);
+    if(daysSince<=0) return "Vandaag al gedaan";
+    var since = daysSince===1 ? "Gisteren gedaan" : daysSince+" dagen geleden gedaan";
+    var nextIn = Math.max(0, (step.everyDays||1) - daysSince);
+    if(nextIn<=0) return since+" · aanbevolen: nu weer";
+    var next = nextIn===1 ? "volgende keer over 1 dag" : "volgende keer over "+nextIn+" dagen";
     return since+" · "+next;
   }
 
@@ -483,8 +538,17 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
     var sorted = WEEK_ORDER.filter(function(w){ return days.indexOf(w)!==-1; });
     return sorted.map(function(w){ return DAY_LABEL[w]; }).join(" ");
   }
+  function scheduleLabel(s){
+    var type = s.scheduleType || "weekly";
+    if(type==="interval") return (s.everyDays||1)===1 ? "Elke dag" : "Elke "+s.everyDays+" dagen";
+    if(type==="linked"){
+      var t = findStep(s.linkedTo);
+      return "Gekoppeld aan "+(t?t.name:"?");
+    }
+    return daysLabel(s.days);
+  }
 
-  function buildRowBody(step, isSkipped, suggestion){
+  function buildRowBody(step, isSkipped){
     var body = document.createElement("div");
     body.className = "row-body";
     var nameLine = document.createElement("div");
@@ -497,19 +561,16 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
     name.textContent = step.name;
     nameLine.appendChild(dot);
     nameLine.appendChild(name);
-    if(!isSkipped && suggestion && (step.id==="conditioner" || step.id==="keratinemasker")){
-      var wants = step.id==="conditioner" ? "conditioner" : "masker";
-      if(suggestion.variant===wants){
-        var tag = document.createElement("span");
-        tag.className = "suggest-tag";
-        tag.textContent = "Voorgesteld";
-        nameLine.appendChild(tag);
-      }
+    if(!isSkipped && step.scheduleType==="linked" && suggestedLinkedSibling(step.linkedTo)===step.id){
+      var tag = document.createElement("span");
+      tag.className = "suggest-tag";
+      tag.textContent = "Voorgesteld";
+      nameLine.appendChild(tag);
     }
     body.appendChild(nameLine);
     var noteText = isSkipped ? "Overgeslagen vandaag" : (step.notes||"");
-    if(!isSkipped && step.id==="shampoo"){
-      var hint = washHintText(suggestion);
+    if(!isSkipped && step.scheduleType==="interval"){
+      var hint = intervalHintText(step);
       noteText = noteText ? noteText+" · "+hint : hint;
     }
     if(noteText){
@@ -521,20 +582,70 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
     return body;
   }
 
+  function stepLoggedToday(step){
+    return !!state.todayLog.done[step.id] || !!(state.todayLog.skipped && state.todayLog.skipped[step.id]);
+  }
+
+  function buildRow(step){
+    var skipped = !!(state.todayLog.skipped && state.todayLog.skipped[step.id]);
+    var checked = !!state.todayLog.done[step.id];
+    var wrap = document.createElement("div");
+    wrap.className = "row-wrap"+(skipped?" skipped":"");
+
+    if(skipped){
+      var main = document.createElement("div");
+      main.className = "row-main";
+      var dash = document.createElement("span");
+      dash.className = "skip-dash";
+      dash.textContent = "–";
+      main.appendChild(dash);
+      main.appendChild(buildRowBody(step, true));
+      wrap.appendChild(main);
+    } else {
+      var label = document.createElement("label");
+      label.className = "row-main"+(checked?" done":"");
+      var input = document.createElement("input");
+      input.type = "checkbox";
+      input.checked = checked;
+      input.disabled = state.readOnly;
+      input.addEventListener("change", function(){ toggleDone(step.id); });
+      var chk = document.createElement("span");
+      chk.className = "chk";
+      label.appendChild(input);
+      label.appendChild(chk);
+      label.appendChild(buildRowBody(step, false));
+      wrap.appendChild(label);
+    }
+
+    var skipBtn = document.createElement("button");
+    skipBtn.type = "button";
+    skipBtn.className = "skip-btn"+(skipped?" active":"");
+    skipBtn.textContent = skipped ? "Herstel" : "Sla over";
+    skipBtn.disabled = state.readOnly || checked;
+    skipBtn.addEventListener("click", function(){ toggleSkip(step.id); });
+    wrap.appendChild(skipBtn);
+    return wrap;
+  }
+
   function renderRoutine(moment, mountId, countId){
     var mount = document.getElementById(mountId);
     mount.innerHTML = "";
-    var items = state.steps.filter(function(s){ return s.moment===moment && (s.days||[]).indexOf(todayWeekday)!==-1; });
+
+    var momentSteps = state.steps.filter(function(s){ return s.moment===moment; });
+    var dueItems = momentSteps.filter(function(s){ return isStepDue(s) || stepLoggedToday(s); });
+    var notDueFlexible = momentSteps.filter(function(s){
+      return !isStepDue(s) && !stepLoggedToday(s) && (s.scheduleType==="interval" || s.scheduleType==="linked");
+    });
 
     var doneN = 0, totalN = 0;
-    items.forEach(function(it){
+    dueItems.forEach(function(it){
       if(state.todayLog.skipped && state.todayLog.skipped[it.id]) return;
       totalN++;
       if(state.todayLog.done[it.id]) doneN++;
     });
     document.getElementById(countId).textContent = doneN+"/"+totalN;
 
-    if(items.length===0){
+    if(dueItems.length===0 && notDueFlexible.length===0){
       var empty = document.createElement("div");
       empty.className = "empty-row";
       empty.textContent = "Niets gepland vandaag.";
@@ -542,49 +653,26 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
       return;
     }
 
-    var suggestion = computeWashSuggestion();
+    dueItems.forEach(function(step){ mount.appendChild(buildRow(step)); });
 
-    items.forEach(function(step){
-      var skipped = !!(state.todayLog.skipped && state.todayLog.skipped[step.id]);
-      var checked = !!state.todayLog.done[step.id];
-      var wrap = document.createElement("div");
-      wrap.className = "row-wrap"+(skipped?" skipped":"");
-
-      if(skipped){
-        var main = document.createElement("div");
-        main.className = "row-main";
-        var dash = document.createElement("span");
-        dash.className = "skip-dash";
-        dash.textContent = "–";
-        main.appendChild(dash);
-        main.appendChild(buildRowBody(step, true, suggestion));
-        wrap.appendChild(main);
-      } else {
-        var label = document.createElement("label");
-        label.className = "row-main"+(checked?" done":"");
-        var input = document.createElement("input");
-        input.type = "checkbox";
-        input.checked = checked;
-        input.disabled = state.readOnly;
-        input.addEventListener("change", function(){ toggleDone(step.id); });
-        var chk = document.createElement("span");
-        chk.className = "chk";
-        label.appendChild(input);
-        label.appendChild(chk);
-        label.appendChild(buildRowBody(step, false, suggestion));
-        wrap.appendChild(label);
-      }
-
-      var skipBtn = document.createElement("button");
-      skipBtn.type = "button";
-      skipBtn.className = "skip-btn"+(skipped?" active":"");
-      skipBtn.textContent = skipped ? "Herstel" : "Sla over";
-      skipBtn.disabled = state.readOnly || checked;
-      skipBtn.addEventListener("click", function(){ toggleSkip(step.id); });
-      wrap.appendChild(skipBtn);
-
-      mount.appendChild(wrap);
-    });
+    if(notDueFlexible.length>0){
+      var label = notDueFlexible.length===1 ? "stap" : "stappen";
+      var closedText = "+ "+notDueFlexible.length+" "+label+" nog niet aan de beurt — toon";
+      var more = document.createElement("button");
+      more.type = "button";
+      more.className = "skip-btn";
+      more.style.cssText = "width:100%;text-align:left;padding:10px 8px;";
+      more.textContent = closedText;
+      var extraWrap = document.createElement("div");
+      extraWrap.hidden = true;
+      notDueFlexible.forEach(function(step){ extraWrap.appendChild(buildRow(step)); });
+      more.addEventListener("click", function(){
+        extraWrap.hidden = !extraWrap.hidden;
+        more.textContent = extraWrap.hidden ? closedText : "Verbergen";
+      });
+      mount.appendChild(more);
+      mount.appendChild(extraWrap);
+    }
   }
 
   function highlightActiveTime(){
@@ -628,7 +716,7 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
         t1.textContent = s.moment==="ochtend"?"Ochtend":s.moment==="avond"?"Avond":"Wanneer het uitkomt";
         var t2 = document.createElement("span");
         t2.className = "tag";
-        t2.textContent = daysLabel(s.days);
+        t2.textContent = scheduleLabel(s);
         tags.appendChild(t1);
         tags.appendChild(t2);
         info.appendChild(name);
@@ -699,6 +787,7 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
   var pform = document.getElementById("pform");
   var editingId = null;
   var formCat = "huid", formTime = "ochtend", formDays = [];
+  var formScheduleType = "weekly", formLinkedTo = null;
 
   function setSeg(container, value){
     container.querySelectorAll("button").forEach(function(b){ b.classList.toggle("on", b.dataset.val===value); });
@@ -755,16 +844,59 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
     setDaySeg();
   });
 
+  function setScheduleVisibility(){
+    document.getElementById("schedWeekly").hidden = formScheduleType!=="weekly";
+    document.getElementById("schedInterval").hidden = formScheduleType!=="interval";
+    document.getElementById("schedLinked").hidden = formScheduleType!=="linked";
+    setSeg(document.getElementById("seg-schedtype"), formScheduleType);
+  }
+  document.getElementById("seg-schedtype").querySelectorAll("button").forEach(function(b){
+    b.addEventListener("click", function(){
+      formScheduleType = b.dataset.val;
+      if(formScheduleType==="linked") renderLinkedSeg();
+      setScheduleVisibility();
+    });
+  });
+  function renderLinkedSeg(){
+    var container = document.getElementById("seg-linked");
+    container.innerHTML = "";
+    var options = state.steps.filter(function(s){ return s.id!==editingId; });
+    if(options.length===0){
+      var empty = document.createElement("div");
+      empty.className = "row-notes";
+      empty.textContent = "Nog geen ander product om aan te koppelen.";
+      container.appendChild(empty);
+      return;
+    }
+    if(!formLinkedTo || !options.some(function(s){ return s.id===formLinkedTo; })){
+      formLinkedTo = options[0].id;
+    }
+    options.forEach(function(s){
+      var b = document.createElement("button");
+      b.type = "button";
+      b.dataset.val = s.id;
+      b.textContent = s.name;
+      b.className = formLinkedTo===s.id ? "on" : "";
+      b.addEventListener("click", function(){ formLinkedTo=s.id; renderLinkedSeg(); });
+      container.appendChild(b);
+    });
+  }
+
   function openForm(step){
     editingId = step ? step.id : null;
     document.getElementById("f-name").value = step ? step.name : "";
     document.getElementById("f-notes").value = step ? (step.notes||"") : "";
     formCat = step ? step.category : (state.categories[0] ? state.categories[0].id : "huid");
     formTime = step ? step.moment : "ochtend";
-    formDays = step ? (step.days||[]).slice() : [1,2,3,4,5,6,0];
+    formScheduleType = step ? (step.scheduleType || "weekly") : "weekly";
+    formDays = step && step.days ? step.days.slice() : [1,2,3,4,5,6,0];
+    document.getElementById("f-every").value = step && step.everyDays ? step.everyDays : "2";
+    formLinkedTo = step ? (step.linkedTo || null) : null;
     renderCategorySeg();
     setSeg(document.getElementById("seg-time"), formTime);
     setDaySeg();
+    setScheduleVisibility();
+    if(formScheduleType==="linked") renderLinkedSeg();
     document.getElementById("btnSaveForm").textContent = step ? "Wijzigingen opslaan" : "Opslaan";
     pform.hidden = false;
     document.getElementById("f-name").focus();
@@ -777,12 +909,24 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
     e.preventDefault();
     if(state.readOnly) return;
     var name = document.getElementById("f-name").value.trim();
-    if(!name || formDays.length===0) return;
+    if(!name) return;
     var data = {
       name: name, category: formCat, moment: formTime,
-      days: formDays.slice(),
+      scheduleType: formScheduleType,
       notes: document.getElementById("f-notes").value.trim()
     };
+    if(formScheduleType==="weekly"){
+      if(formDays.length===0) return;
+      data.days = formDays.slice();
+    } else if(formScheduleType==="interval"){
+      var n = parseInt(document.getElementById("f-every").value, 10);
+      data.everyDays = (n && n>0) ? n : 1;
+      data.days = ALL_DAYS.slice();
+    } else if(formScheduleType==="linked"){
+      if(!formLinkedTo) return;
+      data.linkedTo = formLinkedTo;
+      data.days = ALL_DAYS.slice();
+    }
     if(editingId){ updateStepApi(editingId, data); } else { createStepApi(data); }
     closeForm();
   });
@@ -794,10 +938,8 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
     });
   }
 
-  var WASH_VARIANT_PAIR = { conditioner: "keratinemasker", keratinemasker: "conditioner" };
-
   function saveTodayLog(done, skipped){
-    var applicable = stepsForDay(todayWeekday);
+    var applicable = stepsForDay();
     var skippedApplicable = applicable.filter(function(s){ return !!skipped[s.id]; }).length;
     var total = applicable.length - skippedApplicable;
     var body = { done: done, skipped: skipped, total: total };
@@ -812,8 +954,12 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
     if(state.todayLog.skipped && state.todayLog.skipped[key]) return;
     var newDone = Object.assign({}, state.todayLog.done);
     newDone[key] = !newDone[key];
-    if(newDone[key] && WASH_VARIANT_PAIR[key]){
-      newDone[WASH_VARIANT_PAIR[key]] = false;
+    if(newDone[key]){
+      var step = findStep(key);
+      if(step && step.scheduleType==="linked"){
+        state.steps.filter(function(s){ return s.scheduleType==="linked" && s.linkedTo===step.linkedTo && s.id!==key; })
+          .forEach(function(sib){ newDone[sib.id] = false; });
+      }
     }
     saveTodayLog(newDone, state.todayLog.skipped||{});
   }
