@@ -312,8 +312,16 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
 
     <form class="pform" id="pform" hidden style="margin-top:14px;">
       <div class="frow">
-        <label for="f-name">Naam</label>
-        <input type="text" id="f-name" placeholder="bv. Andrelon Oil &amp; Care shampoo" required>
+        <label for="f-name">Naam (kort, zichtbaar in de app)</label>
+        <input type="text" id="f-name" placeholder="bv. Shampoo" required>
+      </div>
+      <div class="frow">
+        <label for="f-fullname">Volledige productnaam (optioneel)</label>
+        <input type="text" id="f-fullname" placeholder="bv. Andrelon Oil &amp; Care shampoo 300ml">
+      </div>
+      <div class="frow">
+        <label for="f-ingredients">Ingrediënten (optioneel)</label>
+        <textarea id="f-ingredients" rows="3" placeholder="bv. Aqua, Sodium Laureth Sulfate, Cocamidopropyl Betaine, ..."></textarea>
       </div>
       <div class="frow">
         <label>Categorie</label>
@@ -385,7 +393,13 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
     <div class="card" style="margin-top:16px;">
       <div class="card-head"><h2>Geschiedenis</h2></div>
       <div class="row-notes">Download alles wat je ooit hebt afgevinkt, overgeslagen en genoteerd als CSV-bestand (te openen in Excel/Google Sheets).</div>
-      <a class="btn primary" href="/api/export" style="margin-top:6px;display:inline-flex;align-items:center;justify-content:center;text-decoration:none;">Exporteer naar CSV</a>
+      <a class="btn primary" href="/api/export" style="margin-top:6px;display:inline-flex;align-items:center;justify-content:center;text-decoration:none;">Exporteer dagboek (CSV)</a>
+    </div>
+
+    <div class="card" style="margin-top:16px;">
+      <div class="card-head"><h2>Producten</h2></div>
+      <div class="row-notes">Download al je producten met volledige naam en ingrediëntenlijst als CSV — handig om in één keer met AI te laten analyseren.</div>
+      <a class="btn primary" href="/api/export/products" style="margin-top:6px;display:inline-flex;align-items:center;justify-content:center;text-decoration:none;">Exporteer producten (CSV)</a>
     </div>
   </section>
 </div>
@@ -473,13 +487,39 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
     return state.steps.find(function(s){ return s.id===id; });
   }
 
+  // "Stel uit" defers a step to a later day instead of skipping it outright.
+  // Finds the most recent day whose log postponed this step and returns the
+  // target date it was deferred to, unless the step was already done or
+  // skipped on some day after that — then the postponement no longer applies.
+  function activePostponeTarget(stepId){
+    var sourceId = null, targetId = null;
+    Object.keys(state.logsByDate).forEach(function(id){
+      var log = state.logsByDate[id];
+      if(log && log.postponed && log.postponed[stepId]){
+        if(!sourceId || id>sourceId){ sourceId = id; targetId = log.postponed[stepId]; }
+      }
+    });
+    if(!targetId) return null;
+    var resolved = false;
+    Object.keys(state.logsByDate).forEach(function(id){
+      if(id<=sourceId) return;
+      var log = state.logsByDate[id];
+      if(log && ((log.done && log.done[stepId]) || (log.skipped && log.skipped[stepId]))) resolved = true;
+    });
+    return resolved ? null : targetId;
+  }
+
   // A step is "due" today depending on its schedule type:
   // - weekly: fixed days of the week (the original model)
   // - interval: every N days since this step was itself last logged,
   //   so an early or late check-in simply restarts the count from today
   // - linked: due whenever the step it's linked to is due (used for
   //   "conditioner OR mask, whichever goes with today's wash")
+  // A postponed step overrides all of that: hidden until its target date,
+  // then forced due from that date onward regardless of its own schedule.
   function isStepDue(step, seen){
+    var postponeTarget = activePostponeTarget(step.id);
+    if(postponeTarget) return state.viewedId>=postponeTarget;
     var type = step.scheduleType || "weekly";
     if(type==="interval"){
       var last = findLastDone(step.id);
@@ -721,6 +761,17 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
     skipBtn.disabled = state.readOnly || checked;
     skipBtn.addEventListener("click", function(){ toggleSkip(step.id); });
     actions.appendChild(skipBtn);
+
+    if(!skipped){
+      var postponeBtn = document.createElement("button");
+      postponeBtn.type = "button";
+      postponeBtn.className = "skip-btn";
+      postponeBtn.textContent = "Stel uit";
+      postponeBtn.disabled = state.readOnly || checked;
+      postponeBtn.addEventListener("click", function(){ postponeToTomorrow(step.id); });
+      actions.appendChild(postponeBtn);
+    }
+
     if(showNowBtn) wrap.appendChild(actions);
     return wrap;
   }
@@ -1040,6 +1091,8 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
   function openForm(step){
     editingId = step ? step.id : null;
     document.getElementById("f-name").value = step ? step.name : "";
+    document.getElementById("f-fullname").value = step ? (step.fullName||"") : "";
+    document.getElementById("f-ingredients").value = step ? (step.ingredients||"") : "";
     document.getElementById("f-notes").value = step ? (step.notes||"") : "";
     formCat = step ? step.category : (state.categories[0] ? state.categories[0].id : "huid");
     formMoments = step ? momentsOf(step).slice() : ["ochtend"];
@@ -1069,6 +1122,8 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
     var data = {
       name: name, category: formCat, moment: formMoments.slice(),
       scheduleType: formScheduleType,
+      fullName: document.getElementById("f-fullname").value.trim(),
+      ingredients: document.getElementById("f-ingredients").value.trim(),
       notes: document.getElementById("f-notes").value.trim()
     };
     if(formScheduleType==="weekly"){
@@ -1096,7 +1151,7 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
     });
   }
 
-  function saveLogForDate(id, done, skipped, note){
+  function saveLogForDate(id, done, skipped, note, postponed){
     // stepsForDay() reads state.viewedId, so borrow it briefly to compute
     // the right total for the target date even when that is not the day
     // on screen (used by "Nu al gedaan" while browsing a future day).
@@ -1109,7 +1164,8 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
     var existing = state.logsByDate[id];
     var body = {
       done: done, skipped: skipped, total: total,
-      note: note!==undefined ? note : (existing ? existing.note||"" : "")
+      note: note!==undefined ? note : (existing ? existing.note||"" : ""),
+      postponed: postponed!==undefined ? postponed : (existing ? existing.postponed||{} : {})
     };
     state.logsByDate[id] = Object.assign({date:id}, body);
     renderAll();
@@ -1161,6 +1217,13 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
     newSkipped[key] = !newSkipped[key];
     if(newSkipped[key]) newDone[key] = false;
     saveViewedLog(newDone, newSkipped);
+  }
+  function postponeToTomorrow(key){
+    if(state.readOnly) return;
+    var log = currentLog();
+    var newPostponed = Object.assign({}, log.postponed||{});
+    newPostponed[key] = addDaysId(state.viewedId, 1);
+    saveLogForDate(state.viewedId, log.done, log.skipped||{}, undefined, newPostponed);
   }
 
   function createStepApi(data){

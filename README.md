@@ -44,10 +44,16 @@ Zonder Vercel KV-omgevingsvariabelen werkt de UI, maar falen de opslag-calls (je
 
 **Instellingen → Exporteer naar CSV** downloadt de volledige historie (elke dag ooit gelogd: wat is afgevinkt, overgeslagen, en de dagnotitie) als CSV-bestand, te openen in Excel/Google Sheets.
 
+**Instellingen → Exporteer producten (CSV)** downloadt per product de korte naam, volledige productnaam en ingrediëntenlijst (zoals ingevuld bij het bewerken van een product), handig om in één keer met AI te laten analyseren.
+
+## Een stap uitstellen
+
+Bij een stap die aan de beurt is kun je naast "Sla over" ook "Stel uit" kiezen: die stap verdwijnt dan voor vandaag en komt morgen (los van zijn normale schema) gegarandeerd weer als "aan de beurt" terug, totdat je hem afvinkt of overslaat.
+
 ## Databasemodel
 
-- `steps` — array met alle routine-stappen (naam, categorie-id, moment — array met `ochtend` en/of `avond` — dagen/herhaling, notitie). Wordt bij de eerste aanvraag automatisch gevuld met de huidige routine.
+- `steps` — array met alle routine-stappen (naam, volledige productnaam, ingrediëntenlijst, categorie-id, moment — array met `ochtend` en/of `avond` — dagen/herhaling, notitie). Wordt bij de eerste aanvraag automatisch gevuld met de huidige routine.
 - `categories` — array met categorieën (`{id, name}`), begint met Huid en Haar; voeg je eigen categorie toe via het "+ Nieuw"-knopje bij een product.
-- `log:<YYYY-MM-DD>` — per dag welke stappen zijn afgevinkt (`done`), welke zijn overgeslagen (`skipped`), het totaal aantal toepasselijke stappen die dag, en een vrije dagnotitie (`note`).
+- `log:<YYYY-MM-DD>` — per dag welke stappen zijn afgevinkt (`done`), welke zijn overgeslagen (`skipped`), welke zijn uitgesteld naar een latere datum (`postponed`), het totaal aantal toepasselijke stappen die dag, en een vrije dagnotitie (`note`).
 - `push_subs` — geregistreerde push-abonnementen per toestel.
 - `push_sent:<slot>:<YYYY-MM-DD>` — houdt bij of de melding voor "morning"/"evening" die dag al is verstuurd.
