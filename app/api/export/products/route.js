@@ -14,12 +14,19 @@ function momentLabel(step) {
   return "Ochtend";
 }
 
+function ratioLabel(step) {
+  if (step.ratioN > 0 && step.ratioOf > 0) return `${step.ratioN} op de ${step.ratioOf} keer`;
+  if (step.occurrenceEvery > 1) return `1 op de ${step.occurrenceEvery} keer`;
+  return null;
+}
+
 function scheduleLabel(step, nameById) {
   const type = step.scheduleType || "weekly";
   if (type === "interval") return `Elke ${step.everyDays || 1} dagen`;
   if (type === "linked") {
     const base = `Gekoppeld aan ${nameById[step.linkedTo] || "?"}`;
-    return step.occurrenceEvery > 1 ? `${base} (1 op de ${step.occurrenceEvery} keer)` : base;
+    const ratio = ratioLabel(step);
+    return ratio ? `${base} (${ratio})` : base;
   }
   if (!step.days || step.days.length === 0) return "Nooit";
   if (step.days.length === 7) return "Elke dag";
@@ -47,6 +54,7 @@ export async function GET() {
       "Categorie",
       "Moment",
       "Herhaling",
+      "Conflicteert met",
       "Notitie"
     ];
     const rows = steps.map((s) => [
@@ -56,6 +64,7 @@ export async function GET() {
       categoryNameById[s.category] || s.category,
       momentLabel(s),
       scheduleLabel(s, nameById),
+      (s.conflictsWith || []).map((id) => nameById[id] || "?").join(", "),
       s.notes || ""
     ]);
 

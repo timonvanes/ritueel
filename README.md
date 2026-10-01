@@ -50,9 +50,17 @@ Zonder Vercel KV-omgevingsvariabelen werkt de UI, maar falen de opslag-calls (je
 
 Bij een stap die aan de beurt is kun je naast "Sla over" ook "Stel uit" kiezen: die stap verdwijnt dan voor vandaag en komt morgen (los van zijn normale schema) gegarandeerd weer als "aan de beurt" terug, totdat je hem afvinkt of overslaat.
 
+## Producten die niet mogen combineren
+
+Bij een product kun je onder "Conflicteert met" aangeven welke andere producten niet op dezelfde dag mogen (bv. retinol en zelftanner). Komen twee conflicterende producten toch op dezelfde dag uit, dan wint automatisch wie het langst geleden is gedaan (of nog nooit); de ander krijgt die dag een duidelijke "Conflicteert vandaag met …"-melding te zien in plaats van een aanvinkbare stap, en komt de volgende dag vanzelf weer gewoon aan de beurt. Dit wordt elke keer opnieuw uitgerekend op basis van de echte geschiedenis, dus het past zich automatisch aan als het schema verschuift.
+
+## Verdeling tussen gekoppelde producten
+
+Bij "Gekoppeld aan ander product" (bv. conditioner/masker na shampoo) stel je per product direct zijn eigen aandeel in als "X op de Y keer" — bv. conditioner = 2 op de 3 keer, masker = 1 op de 3 keer. Beide staan los van elkaar, dus je hoeft niet meer het ene product te laten "afleiden" van wat je bij het andere instelt. Een product zonder ingestelde verhouding deelt automatisch wat er nog overblijft. De verdeling wordt, net als bij conflicten, elke keer vers berekend uit de echte geschiedenis — kies je een keer iets anders dan voorgesteld, dan schuift de rest zich automatisch bij.
+
 ## Databasemodel
 
-- `steps` — array met alle routine-stappen (naam, volledige productnaam, ingrediëntenlijst, categorie-id, moment — array met `ochtend` en/of `avond` — dagen/herhaling, notitie). Wordt bij de eerste aanvraag automatisch gevuld met de huidige routine.
+- `steps` — array met alle routine-stappen (naam, volledige productnaam, ingrediëntenlijst, categorie-id, moment — array met `ochtend` en/of `avond` — dagen/herhaling, `conflictsWith` — ids van producten die niet dezelfde dag mogen, `ratioN`/`ratioOf` bij gekoppelde producten, notitie). Wordt bij de eerste aanvraag automatisch gevuld met de huidige routine.
 - `categories` — array met categorieën (`{id, name}`), begint met Huid en Haar; voeg je eigen categorie toe via het "+ Nieuw"-knopje bij een product.
 - `log:<YYYY-MM-DD>` — per dag welke stappen zijn afgevinkt (`done`), welke zijn overgeslagen (`skipped`), welke zijn uitgesteld naar een latere datum (`postponed`), het totaal aantal toepasselijke stappen die dag, en een vrije dagnotitie (`note`).
 - `push_subs` — geregistreerde push-abonnementen per toestel.

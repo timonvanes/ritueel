@@ -217,6 +217,8 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
 .seg.days button{padding:9px 13px;min-width:44px;}
 .seg-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
 .seg-row .allday{font-size:12px;padding:7px 12px;min-height:34px;color:var(--accent);border-color:var(--accent);background:none;}
+form.pform input.ratio-input{width:56px;text-align:center;flex:0 0 auto;}
+.ratio-label{font-family:"Work Sans",sans-serif;font-size:13.5px;color:var(--muted);}
 .form-actions{display:flex;gap:10px;}
 .form-actions .btn{flex:1;}
 
@@ -364,12 +366,21 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
       <div class="frow" id="schedLinked" hidden>
         <label>Gekoppeld aan</label>
         <div class="seg" id="seg-linked"></div>
-        <label style="margin-top:8px;" for="f-occurrence">Hoe vaak (optioneel)</label>
-        <input type="text" inputmode="numeric" id="f-occurrence" placeholder="bv. 3 = 1 op de 3 keer. Leeg = wisselt standaard af">
+        <label style="margin-top:8px;">Hoe vaak (optioneel)</label>
+        <div class="seg-row">
+          <input type="text" inputmode="numeric" id="f-ratio-n" class="ratio-input" placeholder="1">
+          <span class="ratio-label">op de</span>
+          <input type="text" inputmode="numeric" id="f-ratio-of" class="ratio-input" placeholder="3">
+          <span class="ratio-label">keer. Leeg = wisselt standaard af</span>
+        </div>
+      </div>
+      <div class="frow">
+        <label>Conflicteert met (niet combineren op dezelfde dag)</label>
+        <div class="seg" id="seg-conflicts"></div>
       </div>
       <div class="frow">
         <label for="f-notes">Notitie (optioneel)</label>
-        <textarea id="f-notes" rows="2" placeholder="bv. niet combineren met retinol"></textarea>
+        <textarea id="f-notes" rows="2" placeholder="bv. extra aandachtspunt"></textarea>
       </div>
       <div class="form-actions">
         <button type="button" class="btn" id="btnCancelForm">Annuleren</button>
@@ -531,7 +542,12 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
       if(seen[step.id]) return false;
       seen[step.id] = true;
       var target = findStep(step.linkedTo);
-      return target ? isStepDue(target, seen) : true;
+      if(!target) return true;
+      // Also due if the target was already logged today: it was clearly
+      // due earlier today before being checked off, and without this a
+      // sibling (conditioner/masker) would vanish the instant its target
+      // (shampoo) is ticked first, before the sibling itself gets a turn.
+      return isStepDue(target, seen) || stepLoggedOnViewed(target);
     }
     return (step.days||[]).indexOf(viewedWeekday())!==-1;
   }
@@ -544,13 +560,18 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
     return state.steps.filter(function(s){ return isStepDue(s) || stepLoggedOnViewed(s); });
   }
 
+  // Tie-break by id (not input order) when last-done dates are equal —
+  // conflict resolution asks this question from either step's perspective
+  // (its own rivals first, itself last), so an order-dependent tie-break
+  // would let each side conclude the OTHER one won, leaving both blocked.
   function pickLeastRecentlyUsed(siblings){
     var withDates = siblings.map(function(s){ return { id:s.id, last: findLastDone(s.id) }; });
     withDates.sort(function(a,b){
-      if(!a.last && !b.last) return 0;
+      if(!a.last && !b.last) return a.id<b.id ? -1 : (a.id>b.id ? 1 : 0);
       if(!a.last) return -1;
       if(!b.last) return 1;
-      return a.last<b.last ? -1 : (a.last>b.last ? 1 : 0);
+      if(a.last!==b.last) return a.last<b.last ? -1 : 1;
+      return a.id<b.id ? -1 : (a.id>b.id ? 1 : 0);
     });
     return withDates[0].id;
   }
@@ -570,19 +591,91 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
     return count;
   }
 
-  // Among steps linked to the same target: siblings with an "occurrenceEvery"
-  // (e.g. masker = 3 -> every 3rd wash) take their slot when the upcoming
-  // wash number matches; everything else falls to whichever plain sibling
-  // (no occurrenceEvery set) was used least recently — the original 50/50
-  // alternation when nobody has set a ratio.
+  // Each sibling's target share of occurrences, set directly as "X op de Y
+  // keer" (ratioN/ratioOf) instead of inferring one sibling's share from
+  // another's — so conditioner=2 op de 3 and masker=1 op de 3 can both be
+  // set explicitly instead of one being "whatever's left over". Siblings
+  // left blank split whatever share isn't already claimed, equally. The
+  // older single "occurrenceEvery" field (1 op de N) still works as-is.
+  function siblingRatioWeight(s){
+    if(s.ratioN>0 && s.ratioOf>0) return s.ratioN/s.ratioOf;
+    if(s.occurrenceEvery>1) return 1/s.occurrenceEvery;
+    return null;
+  }
+  function linkedSiblingWeights(siblings){
+    var weights = {}, assignedTotal = 0, unsetCount = 0;
+    siblings.forEach(function(s){
+      var w = siblingRatioWeight(s);
+      if(w===null) unsetCount++; else assignedTotal += w;
+    });
+    var remainder = Math.max(0, 1-assignedTotal);
+    var share = unsetCount>0 ? remainder/unsetCount : 0;
+    siblings.forEach(function(s){
+      var w = siblingRatioWeight(s);
+      weights[s.id] = w===null ? share : w;
+    });
+    return weights;
+  }
+
+  // Deficit scheduling: for the upcoming occurrence, compare each sibling's
+  // actual count so far against its target share (occurrence * weight) —
+  // recomputed fresh from real history every time, so picking a different
+  // sibling than suggested on any given wash just naturally shifts who's
+  // "owed" the next one, instead of needing a drift-prone counter.
   function suggestedLinkedSibling(targetId){
     var siblings = state.steps.filter(function(s){ return s.scheduleType==="linked" && s.linkedTo===targetId; });
     if(siblings.length===0) return null;
+    if(siblings.length===1) return siblings[0].id;
+    var weights = linkedSiblingWeights(siblings);
     var occurrence = occurrenceCountBefore(targetId) + 1;
-    var special = siblings.filter(function(s){ return s.occurrenceEvery>1 && occurrence % s.occurrenceEvery===0; });
-    if(special.length>0) return pickLeastRecentlyUsed(special);
-    var defaults = siblings.filter(function(s){ return !(s.occurrenceEvery>1); });
-    return pickLeastRecentlyUsed(defaults.length>0 ? defaults : siblings);
+    var deficits = siblings.map(function(s){
+      return { id:s.id, deficit: occurrence*weights[s.id] - occurrenceCountBefore(s.id) };
+    });
+    var maxDeficit = Math.max.apply(null, deficits.map(function(d){ return d.deficit; }));
+    var top = siblings.filter(function(s){
+      var d = deficits.filter(function(x){ return x.id===s.id; })[0].deficit;
+      return Math.abs(d-maxDeficit) < 1e-9;
+    });
+    return pickLeastRecentlyUsed(top.length>0 ? top : siblings);
+  }
+
+  // A step is "due" ignoring day-level conflicts with other products —
+  // used both to decide what's actually shown, and as the non-recursive
+  // base that conflict resolution below compares rival steps against.
+  function candidateDue(s){
+    if(!isStepDue(s)) return false;
+    if(s.scheduleType==="linked") return suggestedLinkedSibling(s.linkedTo)===s.id;
+    return true;
+  }
+
+  // Products that can't be combined on the same day (e.g. retinol + self-
+  // tanner): conflictsWith is read in both directions so either product can
+  // declare the pair. When two conflicting products are both due the same
+  // day, whichever was done least recently wins that day; the other is
+  // blocked today and simply tries again tomorrow — recomputed fresh every
+  // time, so it self-corrects without a stored schedule override.
+  function conflictPartners(step){
+    var ids = {};
+    (step.conflictsWith||[]).forEach(function(id){ ids[id]=true; });
+    state.steps.forEach(function(s){
+      if(s.id!==step.id && (s.conflictsWith||[]).indexOf(step.id)!==-1) ids[s.id]=true;
+    });
+    return Object.keys(ids);
+  }
+  function conflictingDueRivals(step){
+    var partners = conflictPartners(step);
+    if(partners.length===0) return [];
+    return state.steps.filter(function(s){ return partners.indexOf(s.id)!==-1 && candidateDue(s) && !stepLoggedOnViewed(s); });
+  }
+  function isConflictLoser(step){
+    if(stepLoggedOnViewed(step)) return false;
+    if(!candidateDue(step)) return false;
+    var rivals = conflictingDueRivals(step);
+    if(rivals.length===0) return false;
+    return pickLeastRecentlyUsed(rivals.concat([step])) !== step.id;
+  }
+  function isActiveDue(s){
+    return candidateDue(s) && !isConflictLoser(s);
   }
 
   function intervalHintText(step){
@@ -658,13 +751,19 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
     var sorted = WEEK_ORDER.filter(function(w){ return days.indexOf(w)!==-1; });
     return sorted.map(function(w){ return DAY_LABEL[w]; }).join(" ");
   }
+  function ratioLabel(s){
+    if(s.ratioN>0 && s.ratioOf>0) return s.ratioN+" op de "+s.ratioOf+" keer";
+    if(s.occurrenceEvery>1) return "1 op de "+s.occurrenceEvery+" keer";
+    return null;
+  }
   function scheduleLabel(s){
     var type = s.scheduleType || "weekly";
     if(type==="interval") return (s.everyDays||1)===1 ? "Elke dag" : "Elke "+s.everyDays+" dagen";
     if(type==="linked"){
       var t = findStep(s.linkedTo);
       var base = "Gekoppeld aan "+(t?t.name:"?");
-      return s.occurrenceEvery>1 ? base+" · 1 op de "+s.occurrenceEvery+" keer" : base;
+      var ratio = ratioLabel(s);
+      return ratio ? base+" · "+ratio : base;
     }
     return daysLabel(s.days);
   }
@@ -776,23 +875,54 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
     return wrap;
   }
 
+  function buildConflictRow(step){
+    var rivalNames = conflictingDueRivals(step).map(function(r){ return r.name; }).join(", ");
+    var wrap = document.createElement("div");
+    wrap.className = "row-wrap skipped";
+    var main = document.createElement("div");
+    main.className = "row-main";
+    var dash = document.createElement("span");
+    dash.className = "skip-dash";
+    dash.textContent = "!";
+    main.appendChild(dash);
+    var body = document.createElement("div");
+    body.className = "row-body";
+    var nameLine = document.createElement("div");
+    nameLine.className = "row-name-line";
+    var dot = document.createElement("span");
+    dot.className = "dot";
+    dot.style.background = categoryColor(step.category);
+    var name = document.createElement("span");
+    name.className = "row-name";
+    name.textContent = step.name;
+    nameLine.appendChild(dot);
+    nameLine.appendChild(name);
+    body.appendChild(nameLine);
+    var notes = document.createElement("div");
+    notes.className = "row-notes";
+    notes.textContent = "Conflicteert vandaag met "+rivalNames+" — morgen weer aan de beurt";
+    body.appendChild(notes);
+    main.appendChild(body);
+    wrap.appendChild(main);
+    return wrap;
+  }
+
   function renderRoutine(moment, mountId, countId){
     var mount = document.getElementById(mountId);
     mount.innerHTML = "";
     var log = currentLog();
 
     var momentSteps = state.steps.filter(function(s){ return momentsOf(s).indexOf(moment)!==-1; });
-    // A linked step only counts as "the" due item when it's the one
-    // suggested for this occurrence — its siblings stay out of the way
-    // (reachable via "niet aan de beurt") instead of all showing at once.
-    function isActiveDue(s){
-      if(!isStepDue(s)) return false;
-      if(s.scheduleType==="linked") return suggestedLinkedSibling(s.linkedTo)===s.id;
-      return true;
-    }
+    // isActiveDue (a linked step only counts as "the" due item when it's
+    // the one suggested for this occurrence, and loses out entirely to a
+    // conflicting product that's more overdue) and candidateDue (the same,
+    // ignoring conflicts) are defined once, above, and shared with saving.
     var dueItems = momentSteps.filter(function(s){ return isActiveDue(s) || stepLoggedOnViewed(s); });
+    var conflictBlocked = momentSteps.filter(function(s){
+      return !stepLoggedOnViewed(s) && candidateDue(s) && isConflictLoser(s);
+    });
     var notDueFlexible = momentSteps.filter(function(s){
-      return !isActiveDue(s) && !stepLoggedOnViewed(s) && (s.scheduleType==="interval" || s.scheduleType==="linked");
+      return !candidateDue(s) && !stepLoggedOnViewed(s) && (s.scheduleType==="interval" || s.scheduleType==="linked");
     });
 
     var doneN = 0, totalN = 0;
@@ -803,7 +933,7 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
     });
     document.getElementById(countId).textContent = doneN+"/"+totalN;
 
-    if(dueItems.length===0 && notDueFlexible.length===0){
+    if(dueItems.length===0 && notDueFlexible.length===0 && conflictBlocked.length===0){
       var empty = document.createElement("div");
       empty.className = "empty-row";
       empty.textContent = "Niets gepland.";
@@ -812,6 +942,7 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
     }
 
     dueItems.forEach(function(step){ mount.appendChild(buildRow(step)); });
+    conflictBlocked.forEach(function(step){ mount.appendChild(buildConflictRow(step)); });
 
     if(notDueFlexible.length>0){
       var label = notDueFlexible.length===1 ? "stap" : "stappen";
@@ -903,6 +1034,12 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
         t2.textContent = scheduleLabel(s);
         tags.appendChild(t1);
         tags.appendChild(t2);
+        if(s.conflictsWith && s.conflictsWith.length){
+          var t3 = document.createElement("span");
+          t3.className = "tag";
+          t3.textContent = "Niet met "+s.conflictsWith.map(function(id){ var t=findStep(id); return t?t.name:"?"; }).join(", ");
+          tags.appendChild(t3);
+        }
         info.appendChild(name);
         info.appendChild(tags);
         if(s.notes){
@@ -982,7 +1119,7 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
   var pform = document.getElementById("pform");
   var editingId = null;
   var formCat = "huid", formMoments = ["ochtend"], formDays = [];
-  var formScheduleType = "weekly", formLinkedTo = null;
+  var formScheduleType = "weekly", formLinkedTo = null, formConflicts = [];
 
   function setSeg(container, value){
     container.querySelectorAll("button").forEach(function(b){ b.classList.toggle("on", b.dataset.val===value); });
@@ -1088,6 +1225,33 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
     });
   }
 
+  function renderConflictSeg(){
+    var container = document.getElementById("seg-conflicts");
+    container.innerHTML = "";
+    var options = state.steps.filter(function(s){ return s.id!==editingId; });
+    if(options.length===0){
+      var empty = document.createElement("div");
+      empty.className = "row-notes";
+      empty.textContent = "Nog geen ander product om te kiezen.";
+      container.appendChild(empty);
+      return;
+    }
+    formConflicts = formConflicts.filter(function(id){ return options.some(function(s){ return s.id===id; }); });
+    options.forEach(function(s){
+      var b = document.createElement("button");
+      b.type = "button";
+      b.dataset.val = s.id;
+      b.textContent = s.name;
+      b.className = formConflicts.indexOf(s.id)!==-1 ? "on" : "";
+      b.addEventListener("click", function(){
+        var idx = formConflicts.indexOf(s.id);
+        if(idx===-1) formConflicts.push(s.id); else formConflicts.splice(idx,1);
+        renderConflictSeg();
+      });
+      container.appendChild(b);
+    });
+  }
+
   function openForm(step){
     editingId = step ? step.id : null;
     document.getElementById("f-name").value = step ? step.name : "";
@@ -1099,13 +1263,16 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
     formScheduleType = step ? (step.scheduleType || "weekly") : "weekly";
     formDays = step && step.days ? step.days.slice() : [1,2,3,4,5,6,0];
     document.getElementById("f-every").value = step && step.everyDays ? step.everyDays : "2";
-    document.getElementById("f-occurrence").value = step && step.occurrenceEvery ? step.occurrenceEvery : "";
+    document.getElementById("f-ratio-n").value = step && step.ratioN ? step.ratioN : "";
+    document.getElementById("f-ratio-of").value = step && step.ratioOf ? step.ratioOf : "";
     formLinkedTo = step ? (step.linkedTo || null) : null;
+    formConflicts = step && step.conflictsWith ? step.conflictsWith.slice() : [];
     renderCategorySeg();
     setMomentSeg();
     setDaySeg();
     setScheduleVisibility();
     if(formScheduleType==="linked") renderLinkedSeg();
+    renderConflictSeg();
     document.getElementById("btnSaveForm").textContent = step ? "Wijzigingen opslaan" : "Opslaan";
     pform.hidden = false;
     document.getElementById("f-name").focus();
@@ -1136,10 +1303,12 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
     } else if(formScheduleType==="linked"){
       if(!formLinkedTo) return;
       data.linkedTo = formLinkedTo;
-      var occ = parseInt(document.getElementById("f-occurrence").value, 10);
-      data.occurrenceEvery = (occ && occ>1) ? occ : null;
+      var rn = parseInt(document.getElementById("f-ratio-n").value, 10);
+      var ro = parseInt(document.getElementById("f-ratio-of").value, 10);
+      if(rn>0 && ro>0){ data.ratioN = rn; data.ratioOf = ro; }
       data.days = ALL_DAYS.slice();
     }
+    data.conflictsWith = formConflicts.slice();
     if(editingId){ updateStepApi(editingId, data); } else { createStepApi(data); }
     closeForm();
   });
@@ -1158,9 +1327,14 @@ form.pform input:focus-visible,form.pform textarea:focus-visible{outline:2px sol
     var savedViewedId = state.viewedId;
     state.viewedId = id;
     var applicable = stepsForDay();
+    // A step blocked today by a conflicting product doesn't count toward
+    // the day's total either — it was never actually achievable today.
+    var conflictBlockedApplicable = applicable.filter(function(s){
+      return !skipped[s.id] && !done[s.id] && candidateDue(s) && isConflictLoser(s);
+    }).length;
     state.viewedId = savedViewedId;
     var skippedApplicable = applicable.filter(function(s){ return !!skipped[s.id]; }).length;
-    var total = applicable.length - skippedApplicable;
+    var total = applicable.length - skippedApplicable - conflictBlockedApplicable;
     var existing = state.logsByDate[id];
     var body = {
       done: done, skipped: skipped, total: total,
