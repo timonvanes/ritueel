@@ -46,6 +46,10 @@ Zonder Vercel KV-omgevingsvariabelen werkt de UI, maar falen de opslag-calls (je
 
 **Instellingen → Exporteer producten (CSV)** downloadt per product de korte naam, volledige productnaam en ingrediëntenlijst (zoals ingevuld bij het bewerken van een product), handig om in één keer met AI te laten analyseren.
 
+## Ochtend + Avond onafhankelijk van elkaar
+
+Een product dat zowel 's ochtends als 's avonds gepland staat (bv. een cleanser) heeft twee losse vinkjes: afvinken in de Ochtend-kaart vinkt hem niet automatisch ook af voor Avond, en andersom. "Sla over" en "Stel uit" blijven wel voor de hele dag gelden (voor beide momenten samen), maar het daadwerkelijk afvinken is per moment.
+
 ## Een stap uitstellen
 
 Bij een stap die aan de beurt is kun je naast "Sla over" ook "Stel uit" kiezen: die stap verdwijnt dan voor vandaag en komt morgen (los van zijn normale schema) gegarandeerd weer als "aan de beurt" terug, totdat je hem afvinkt of overslaat.

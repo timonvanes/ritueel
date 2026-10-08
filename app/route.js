@@ -472,6 +472,26 @@ form.pform input.rs-parts{width:52px!important;text-align:center;flex:0 0 auto;}
     return arr.length ? arr : ["ochtend"];
   }
 
+  // A step scheduled for both Ochtend and Avond needs independent "done"
+  // tracking per moment — checking it off in the morning must not also
+  // check it off in the evening. Single-moment steps keep the plain id as
+  // their key (unchanged, so existing history stays readable); skip and
+  // postpone stay keyed by the plain step id regardless, since those apply
+  // to the whole product for the day, not to a single moment's dose of it.
+  function rowKey(step, moment){
+    return momentsOf(step).length>1 ? (step.id+"__"+moment) : step.id;
+  }
+  function stepDoneKeys(step){
+    var moments = momentsOf(step);
+    return moments.length>1 ? moments.map(function(m){ return rowKey(step,m); }) : [step.id];
+  }
+  function isStepAnyDone(step, doneMap){
+    return stepDoneKeys(step).some(function(k){ return !!(doneMap && doneMap[k]); });
+  }
+  function isStepFullyDone(step, doneMap){
+    return stepDoneKeys(step).every(function(k){ return !!(doneMap && doneMap[k]); });
+  }
+
   var CATEGORY_COLORS = ["#0E7A57","#64748B","#B45309","#6D28D9","#0369A1","#BE185D"];
   function categoryColor(catId){
     var idx = state.categories.findIndex(function(c){ return c.id===catId; });
@@ -703,8 +723,8 @@ form.pform input.rs-parts{width:52px!important;text-align:center;flex:0 0 auto;}
 
   function isDayComplete(log){
     if(!log || !log.total) return false;
-    var doneCount = 0, d = log.done||{};
-    for(var k in d){ if(d[k]) doneCount++; }
+    var doneCount = 0;
+    state.steps.forEach(function(s){ if(isStepFullyDone(s, log.done)) doneCount++; });
     return doneCount >= log.total;
   }
 
@@ -816,13 +836,14 @@ form.pform input.rs-parts{width:52px!important;text-align:center;flex:0 0 auto;}
 
   function stepLoggedOnViewed(step){
     var log = currentLog();
-    return !!log.done[step.id] || !!(log.skipped && log.skipped[step.id]);
+    return isStepAnyDone(step, log.done) || !!(log.skipped && log.skipped[step.id]);
   }
 
-  function buildRow(step){
+  function buildRow(step, moment){
     var log = currentLog();
+    var key = rowKey(step, moment);
     var skipped = !!(log.skipped && log.skipped[step.id]);
-    var checked = !!log.done[step.id];
+    var checked = !!log.done[key];
     var wrap = document.createElement("div");
     wrap.className = "row-wrap"+(skipped?" skipped":"");
 
@@ -842,7 +863,7 @@ form.pform input.rs-parts{width:52px!important;text-align:center;flex:0 0 auto;}
       input.type = "checkbox";
       input.checked = checked;
       input.disabled = state.readOnly;
-      input.addEventListener("change", function(){ toggleDone(step.id); });
+      input.addEventListener("change", function(){ toggleDone(step, moment); });
       var chk = document.createElement("span");
       chk.className = "chk";
       label.appendChild(input);
@@ -861,7 +882,7 @@ form.pform input.rs-parts{width:52px!important;text-align:center;flex:0 0 auto;}
       nowBtn.className = "skip-btn";
       nowBtn.textContent = "Nu al gedaan";
       nowBtn.disabled = state.readOnly;
-      nowBtn.addEventListener("click", function(){ logForToday(step.id); });
+      nowBtn.addEventListener("click", function(){ logForToday(step, moment); });
       actions.appendChild(nowBtn);
     }
 
@@ -870,7 +891,7 @@ form.pform input.rs-parts{width:52px!important;text-align:center;flex:0 0 auto;}
     skipBtn.className = "skip-btn"+(skipped?" active":"");
     skipBtn.textContent = skipped ? "Herstel" : "Sla over";
     skipBtn.disabled = state.readOnly || checked;
-    skipBtn.addEventListener("click", function(){ toggleSkip(step.id); });
+    skipBtn.addEventListener("click", function(){ toggleSkip(step); });
     actions.appendChild(skipBtn);
 
     if(!skipped){
@@ -941,7 +962,7 @@ form.pform input.rs-parts{width:52px!important;text-align:center;flex:0 0 auto;}
     dueItems.forEach(function(it){
       if(log.skipped && log.skipped[it.id]) return;
       totalN++;
-      if(log.done[it.id]) doneN++;
+      if(log.done[rowKey(it, moment)]) doneN++;
     });
     document.getElementById(countId).textContent = doneN+"/"+totalN;
 
@@ -953,7 +974,7 @@ form.pform input.rs-parts{width:52px!important;text-align:center;flex:0 0 auto;}
       return;
     }
 
-    dueItems.forEach(function(step){ mount.appendChild(buildRow(step)); });
+    dueItems.forEach(function(step){ mount.appendChild(buildRow(step, moment)); });
     conflictBlocked.forEach(function(step){ mount.appendChild(buildConflictRow(step)); });
 
     if(notDueFlexible.length>0){
@@ -966,7 +987,7 @@ form.pform input.rs-parts{width:52px!important;text-align:center;flex:0 0 auto;}
       more.textContent = closedText;
       var extraWrap = document.createElement("div");
       extraWrap.hidden = true;
-      notDueFlexible.forEach(function(step){ extraWrap.appendChild(buildRow(step)); });
+      notDueFlexible.forEach(function(step){ extraWrap.appendChild(buildRow(step, moment)); });
       more.addEventListener("click", function(){
         extraWrap.hidden = !extraWrap.hidden;
         more.textContent = extraWrap.hidden ? closedText : "Verbergen";
@@ -1486,7 +1507,7 @@ form.pform input.rs-parts{width:52px!important;text-align:center;flex:0 0 auto;}
     // A step blocked today by a conflicting product doesn't count toward
     // the day's total either — it was never actually achievable today.
     var conflictBlockedApplicable = applicable.filter(function(s){
-      return !skipped[s.id] && !done[s.id] && candidateDue(s) && isConflictLoser(s);
+      return !skipped[s.id] && !isStepAnyDone(s, done) && candidateDue(s) && isConflictLoser(s);
     }).length;
     state.viewedId = savedViewedId;
     var skippedApplicable = applicable.filter(function(s){ return !!skipped[s.id]; }).length;
@@ -1512,40 +1533,37 @@ form.pform input.rs-parts{width:52px!important;text-align:center;flex:0 0 auto;}
     var status = document.getElementById("noteStatus");
     if(status){ status.textContent = "Opgeslagen"; setTimeout(function(){ if(status.textContent==="Opgeslagen") status.textContent=""; }, 1500); }
   }
-  function logForToday(key){
+  function logForToday(step, moment){
     if(state.readOnly) return;
     var log = state.logsByDate[todayId] || {date:todayId, done:{}, skipped:{}, total:0};
     var newDone = Object.assign({}, log.done);
-    newDone[key] = true;
-    var step = findStep(key);
-    if(step && step.scheduleType==="linked"){
-      state.steps.filter(function(s){ return s.scheduleType==="linked" && s.linkedTo===step.linkedTo && s.id!==key; })
-        .forEach(function(sib){ newDone[sib.id] = false; });
+    newDone[rowKey(step, moment)] = true;
+    if(step.scheduleType==="linked"){
+      state.steps.filter(function(s){ return s.scheduleType==="linked" && s.linkedTo===step.linkedTo && s.id!==step.id; })
+        .forEach(function(sib){ stepDoneKeys(sib).forEach(function(k){ newDone[k] = false; }); });
     }
     saveLogForDate(todayId, newDone, log.skipped||{});
   }
-  function toggleDone(key){
+  function toggleDone(step, moment){
     if(state.readOnly) return;
     var log = currentLog();
-    if(log.skipped && log.skipped[key]) return;
+    if(log.skipped && log.skipped[step.id]) return;
+    var key = rowKey(step, moment);
     var newDone = Object.assign({}, log.done);
     newDone[key] = !newDone[key];
-    if(newDone[key]){
-      var step = findStep(key);
-      if(step && step.scheduleType==="linked"){
-        state.steps.filter(function(s){ return s.scheduleType==="linked" && s.linkedTo===step.linkedTo && s.id!==key; })
-          .forEach(function(sib){ newDone[sib.id] = false; });
-      }
+    if(newDone[key] && step.scheduleType==="linked"){
+      state.steps.filter(function(s){ return s.scheduleType==="linked" && s.linkedTo===step.linkedTo && s.id!==step.id; })
+        .forEach(function(sib){ stepDoneKeys(sib).forEach(function(k){ newDone[k] = false; }); });
     }
     saveViewedLog(newDone, log.skipped||{});
   }
-  function toggleSkip(key){
+  function toggleSkip(step){
     if(state.readOnly) return;
     var log = currentLog();
     var newSkipped = Object.assign({}, log.skipped||{});
     var newDone = Object.assign({}, log.done);
-    newSkipped[key] = !newSkipped[key];
-    if(newSkipped[key]) newDone[key] = false;
+    newSkipped[step.id] = !newSkipped[step.id];
+    if(newSkipped[step.id]) stepDoneKeys(step).forEach(function(k){ newDone[k] = false; });
     saveViewedLog(newDone, newSkipped);
   }
   function postponeToTomorrow(key){
