@@ -800,7 +800,7 @@ form.pform input.rs-parts{width:52px!important;text-align:center;flex:0 0 auto;}
     return daysLabel(s.days);
   }
 
-  function buildRowBody(step, isSkipped){
+  function buildRowBody(step, isSkipped, extraNote){
     var body = document.createElement("div");
     body.className = "row-body";
     var nameLine = document.createElement("div");
@@ -825,6 +825,7 @@ form.pform input.rs-parts{width:52px!important;text-align:center;flex:0 0 auto;}
       var hint = intervalHintText(step);
       noteText = noteText ? noteText+" · "+hint : hint;
     }
+    if(extraNote) noteText = noteText ? noteText+" · "+extraNote : extraNote;
     if(noteText){
       var notes = document.createElement("div");
       notes.className = "row-notes";
@@ -839,7 +840,7 @@ form.pform input.rs-parts{width:52px!important;text-align:center;flex:0 0 auto;}
     return isStepAnyDone(step, log.done) || !!(log.skipped && log.skipped[step.id]);
   }
 
-  function buildRow(step, moment){
+  function buildRow(step, moment, extraNote){
     var log = currentLog();
     var key = rowKey(step, moment);
     var skipped = !!(log.skipped && log.skipped[step.id]);
@@ -854,7 +855,7 @@ form.pform input.rs-parts{width:52px!important;text-align:center;flex:0 0 auto;}
       dash.className = "skip-dash";
       dash.textContent = "–";
       main.appendChild(dash);
-      main.appendChild(buildRowBody(step, true));
+      main.appendChild(buildRowBody(step, true, extraNote));
       wrap.appendChild(main);
     } else {
       var label = document.createElement("label");
@@ -868,7 +869,7 @@ form.pform input.rs-parts{width:52px!important;text-align:center;flex:0 0 auto;}
       chk.className = "chk";
       label.appendChild(input);
       label.appendChild(chk);
-      label.appendChild(buildRowBody(step, false));
+      label.appendChild(buildRowBody(step, false, extraNote));
       wrap.appendChild(label);
     }
 
@@ -908,38 +909,6 @@ form.pform input.rs-parts{width:52px!important;text-align:center;flex:0 0 auto;}
     return wrap;
   }
 
-  function buildConflictRow(step){
-    var rivalNames = conflictingDueRivals(step).map(function(r){ return r.name; }).join(", ");
-    var wrap = document.createElement("div");
-    wrap.className = "row-wrap skipped";
-    var main = document.createElement("div");
-    main.className = "row-main";
-    var dash = document.createElement("span");
-    dash.className = "skip-dash";
-    dash.textContent = "!";
-    main.appendChild(dash);
-    var body = document.createElement("div");
-    body.className = "row-body";
-    var nameLine = document.createElement("div");
-    nameLine.className = "row-name-line";
-    var dot = document.createElement("span");
-    dot.className = "dot";
-    dot.style.background = categoryColor(step.category);
-    var name = document.createElement("span");
-    name.className = "row-name";
-    name.textContent = step.name;
-    nameLine.appendChild(dot);
-    nameLine.appendChild(name);
-    body.appendChild(nameLine);
-    var notes = document.createElement("div");
-    notes.className = "row-notes";
-    notes.textContent = "Conflicteert vandaag met "+rivalNames+" — morgen weer aan de beurt";
-    body.appendChild(notes);
-    main.appendChild(body);
-    wrap.appendChild(main);
-    return wrap;
-  }
-
   function renderRoutine(moment, mountId, countId){
     var mount = document.getElementById(mountId);
     mount.innerHTML = "";
@@ -975,7 +944,13 @@ form.pform input.rs-parts{width:52px!important;text-align:center;flex:0 0 auto;}
     }
 
     dueItems.forEach(function(step){ mount.appendChild(buildRow(step, moment)); });
-    conflictBlocked.forEach(function(step){ mount.appendChild(buildConflictRow(step)); });
+    // Conflict-blocked items get a real checkbox too, not just a notice —
+    // the automatic pick is a suggestion, and sometimes what actually
+    // happened doesn't match it (e.g. you used the other product anyway).
+    conflictBlocked.forEach(function(step){
+      var rivalNames = conflictingDueRivals(step).map(function(r){ return r.name; }).join(", ");
+      mount.appendChild(buildRow(step, moment, "Conflicteert met "+rivalNames+" — vink aan als dit toch is gebeurd"));
+    });
 
     if(notDueFlexible.length>0){
       var label = notDueFlexible.length===1 ? "stap" : "stappen";
