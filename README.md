@@ -28,7 +28,7 @@ Setup:
    - `VAPID_PRIVATE_KEY`
    - `VAPID_SUBJECT` — bv. `mailto:jouw@email.nl`
 3. Redeploy.
-4. `vercel.json` bevat twee Cron Jobs (1x per dag, toegestaan op het gratis Hobby-plan) die `/api/push/tick` aanroepen; die route bepaalt zelf of het echt rond 7:00 of 22:00 lokale tijd is (met marge voor zomer-/wintertijd) en verstuurt dan, maar nooit twee keer per dag per moment. De GitHub Action in `.github/workflows/push-reminders.yml` roept dezelfde route vaker aan als extra backup.
+4. `vercel.json` bevat twee Cron Jobs (1x per dag, toegestaan op het gratis Hobby-plan) die `/api/push/tick` aanroepen op tijden die zo gekozen zijn dat ze zowel in de winter- als zomertijd binnen een uur van 7:00/22:00 lokale tijd vallen (Vercel Cron Jobs draaien altijd in UTC, niet tijdzone-bewust); die route bepaalt zelf of het echt rond 7:00 of 22:00 lokale tijd is en verstuurt dan, maar nooit twee keer per dag per moment. De GitHub Action in `.github/workflows/push-reminders.yml` is handmatig (workflow_dispatch) — niet meer op een schema, want GitHub's eigen onbetrouwbare timing op zo'n schema zorgde er juist voor dat meldingen op willekeurige tijden aankwamen in plaats van rond 7:00/22:00.
 5. Op je telefoon: zet de app eerst op het beginscherm (vereist voor push op iOS), open hem van daaruit, en tik in **Instellingen** op "Meldingen aanzetten".
 
 ## Lokaal draaien

@@ -1,8 +1,14 @@
 name: Push reminders
 
+# Manual-only. This used to also run on a schedule as a backup to the
+# Vercel Cron Jobs below, but GitHub throttles scheduled workflows on
+# low-activity repos heavily and unpredictably (confirmed: ~14 actual
+# runs over 2.75 days instead of the expected ~400) — whichever trigger
+# landed first inside the on-time window each day decided the send time,
+# so this "backup" was the main reason notifications arrived at random
+# times instead of close to 7:00/22:00. Vercel Cron alone is reliable;
+# use workflow_dispatch here only to send a one-off test.
 on:
-  schedule:
-    - cron: "*/10 * * * *"
   workflow_dispatch: {}
 
 jobs:
